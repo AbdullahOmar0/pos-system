@@ -18,12 +18,13 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import Image from 'next/image'
 
 interface MenuItem {
   id: string
   product_name: string
   category: string
-  product_img_url: string
+  product_img_path: string
   product_price: number
   product_stock: number
 }
@@ -40,10 +41,6 @@ interface Banknote {
   image: string
 }
 
-interface CashDrawer {
-  balance: number
-  transactions: { type: 'in' | 'out', amount: number, description: string, timestamp: Date }[]
-}
 
 const banknotes: Banknote[] = [
   { value: 250, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-txP3Fkrgyzh5n9R7tbvzMpeTYCXehw.png' },
@@ -68,11 +65,6 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
   const [isBatchPaymentOpen, setIsBatchPaymentOpen] = useState(false)
   const [amountReceived, setAmountReceived] = useState(0)
   const [change, setChange] = useState(0)
-  const [cashDrawer, setCashDrawer] = useState<CashDrawer>({ balance: 0, transactions: [] })
-  const [isCashDrawerOpen, setIsCashDrawerOpen] = useState(false)
-  const [cashDrawerAmount, setCashDrawerAmount] = useState(0)
-  const [isAddProductOpen, setIsAddProductOpen] = useState(false)
-  const [newProduct, setNewProduct] = useState<MenuItem>({ id: '', product_name: '', category: '', product_img_url: '', product_price: 0, product_stock: 0 })
   const [activeView, setActiveView] = useState<'checkout' | 'dashboard'>('checkout')
 
   const supabase = createClient()
@@ -115,7 +107,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
     }
   }
 
-  const addToOrder = async (item: MenuItem) => {
+  const addToOrder = (item: MenuItem) => {
     setOrder(prevOrder => {
       const existingItem = prevOrder.find(orderItem => orderItem.id === item.id)
       if (existingItem) {
@@ -127,58 +119,16 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
       }
       return [...prevOrder, { id: item.id, product_name: item.product_name, product_price: item.product_price, quantity: 1 }]
     })
-
-    const { error } = await supabase
-      .from('products')
-      .update({ product_stock: item.product_stock - 1 })
-      .eq('id', item.id)
-
-    if (error) {
-      console.error("Error updating stock:", error)
-    } else {
-      setMenuItems(prevItems => 
-        prevItems.map(menuItem => 
-          menuItem.id === item.id
-            ? { ...menuItem, product_stock: menuItem.product_stock - 1 }
-            : menuItem
-        )
-      )
-    }
   }
 
-  const removeFromOrder = async (itemId: string) => {
-    const orderItem = order.find(item => item.id === itemId)
-    if (!orderItem) return
-
+  const removeFromOrder = (itemId: string) => {
     setOrder(prevOrder => prevOrder.filter(item => item.id !== itemId))
-
-    const { error } = await supabase
-      .from('products')
-      .update({ product_stock: menuItems.find(item => item.id === itemId)!.product_stock + orderItem.quantity })
-      .eq('id', itemId)
-
-    if (error) {
-      console.error("Error updating stock:", error)
-    } else {
-      setMenuItems(prevItems => 
-        prevItems.map(menuItem => 
-          menuItem.id === itemId
-            ? { ...menuItem, product_stock: menuItem.product_stock + orderItem.quantity }
-            : menuItem
-        )
-      )
-    }
   }
 
-  const updateQuantity = async (itemId: string, newQuantity: number) => {
-    const orderItem = order.find(item => item.id === itemId)
-    if (!orderItem) return
-
+  const updateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity === 0) {
       removeFromOrder(itemId)
     } else {
-      const quantityDiff = newQuantity - orderItem.quantity
-
       setOrder(prevOrder =>
         prevOrder.map(item =>
           item.id === itemId
@@ -186,23 +136,6 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
             : item
         )
       )
-
-      const { error } = await supabase
-        .from('products')
-        .update({ product_stock: menuItems.find(item => item.id === itemId)!.product_stock - quantityDiff })
-        .eq('id', itemId)
-
-      if (error) {
-        console.error("Error updating stock:", error)
-      } else {
-        setMenuItems(prevItems => 
-          prevItems.map(menuItem => 
-            menuItem.id === itemId
-              ? { ...menuItem, product_stock: menuItem.product_stock - quantityDiff }
-              : menuItem
-          )
-        )
-      }
     }
   }
 
@@ -224,26 +157,58 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
   }
 
   const handleCompleteBatchPayment = async () => {
-    // Update cash drawer
-    setCashDrawer(prevDrawer => ({
-      balance: prevDrawer.balance + total,
-      transactions: [
-        ...prevDrawer.transactions,
-        { type: 'in', amount: total, description: 'Sale', timestamp: new Date() }
-      ]
-    }))
+    // Create a new sale in the sales table
+    const { data: saleData, error: saleError } = await supabase
+      .from('sales')
+      .insert({
+        sale_date: new Date().toISOString(),
+        total_amount: total,
+        user_id: (await supabase.auth.getUser()).data.user?.id // Assuming the user is logged in
+      })
+      .select()
 
-    // Update stock in Supabase
+    if (saleError) {
+      console.error("Error creating sale:", saleError)
+      return
+    }
+
+    const saleId = saleData[0].id
+
+    // Add items to the sales_items table
     for (const item of order) {
-      const { error } = await supabase
+      const { error: itemError } = await supabase
+        .from('sales_items')
+        .insert({
+          sale_id: saleId,
+          product_id: item.id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          price: item.product_price
+        })
+
+      if (itemError) {
+        console.error("Error adding sale item:", itemError)
+      }
+
+      // Update product stock
+      const { error: stockError } = await supabase
         .from('products')
         .update({ product_stock: menuItems.find(menuItem => menuItem.id === item.id)!.product_stock - item.quantity })
         .eq('id', item.id)
 
-      if (error) {
-        console.error("Error updating stock:", error)
+      if (stockError) {
+        console.error("Error updating stock:", stockError)
       }
     }
+
+    // Update cash drawer
+    //setCashDrawer(prevDrawer => ({
+    //  balance: prevDrawer.balance + total,
+    //  transactions: [
+    //    ...prevDrawer.transactions,
+    //    { type: 'in', amount: total, description: 'Sale', timestamp: new Date() }
+    //  ]
+    //}))
 
     // Reset order and close dialog
     setIsBatchPaymentOpen(false)
@@ -255,50 +220,6 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
     updateProducts()
   }
 
-  const handleOpenCashDrawer = () => {
-    setIsCashDrawerOpen(true)
-    setCashDrawerAmount(0)
-  }
-
-  const handleCloseCashDrawer = () => {
-    setCashDrawer(prevDrawer => ({
-      balance: prevDrawer.balance + cashDrawerAmount,
-      transactions: [
-        ...prevDrawer.transactions,
-        { type: 'in', amount: cashDrawerAmount, description: 'Cash added to drawer', timestamp: new Date() }
-      ]
-    }))
-    setIsCashDrawerOpen(false)
-  }
-
-  const handleAddProduct = () => {
-    setIsAddProductOpen(true)
-    setNewProduct({ id: '', product_name: '', category: '', product_img_url: '', product_price: 0, product_stock: 0 })
-  }
-
-  const handleSaveProduct = async () => {
-    if (newProduct.id) {
-      const { error } = await supabase
-        .from('products')
-        .update(newProduct)
-        .eq('id', newProduct.id)
-
-      if (error) {
-        console.error("Error updating product:", error)
-      }
-    } else {
-      const { error } = await supabase
-        .from('products')
-        .insert([newProduct])
-
-      if (error) {
-        console.error("Error adding product:", error)
-      }
-    }
-
-    setIsAddProductOpen(false)
-    updateProducts()
-  }
 
   const handleDashboardClick = () => {
     router.push('/dashboard')
@@ -320,8 +241,6 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
             ))}
           </div>
           <div className="flex items-center space-x-4">
-            <Button variant="outline" onClick={handleOpenCashDrawer}>Cash Drawer</Button>
-            <Button variant="outline" onClick={handleAddProduct}>Add Product</Button>
             <div className="relative">
               <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <Input
@@ -342,7 +261,15 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
             {filteredItems.map(item => (
               <Card key={item.id} className="overflow-hidden cursor-pointer" onClick={() => addToOrder(item)}>
                 <CardContent className="p-0">
-                  <img src={item.product_img_url} alt={item.product_name} className="w-full h-32 object-cover" />
+                  <Image 
+                    src={item.product_img_path.startsWith('http') 
+                      ? item.product_img_path 
+                      : `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${item.product_img_path}`}
+                    alt={item.product_name}
+                    width={300}
+                    height={200}
+                    className="w-full h-32 object-cover"
+                  />
                   <div className="p-2">
                     <h3 className="font-semibold">{item.product_name}</h3>
                     <div>
@@ -387,7 +314,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
 
       <footer className="bg-white shadow-lg">
         <div className="flex justify-center space-x-4 p-2">
-          <Button variant={activeView === 'checkout' ? 'default' : 'ghost'} onClick={() => setActiveView('checkout')}>
+          <Button variant={activeView === 'checkout' ?   'default' : 'ghost'} onClick={() => setActiveView('checkout')}>
             <ShoppingCart className="mr-2 h-4 w-4" />
             Checkout
           </Button>
@@ -442,119 +369,6 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
             <Button onClick={handleCompleteBatchPayment} disabled={amountReceived < total}>
               Complete Transaction
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isCashDrawerOpen} onOpenChange={setIsCashDrawerOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Cash Drawer Management</DialogTitle>
-            <DialogDescription>Add cash to the drawer or view the current balance.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="flex items-center justify-between">
-              <Label>Current Balance:</Label>
-              <span className="font-bold">{formatCurrency(cashDrawer.balance)}</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="cashAmount">Add Cash:</Label>
-              <Input
-                id="cashAmount"
-                type="number"
-                value={cashDrawerAmount}
-                onChange={(e) => setCashDrawerAmount(Number(e.target.value))}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setIsCashDrawerOpen(false)} variant="outline">
-              Cancel
-            </Button>
-            <Button onClick={handleCloseCashDrawer} disabled={cashDrawerAmount <= 0}>
-              Add to Drawer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Add New Product</DialogTitle>
-            <DialogDescription>Enter the details for the new product.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="name"
-                value={newProduct.product_name}
-                onChange={(e) => setNewProduct({ ...newProduct, product_name: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="category" className="text-right">
-                Category
-              </Label>
-              <Select 
-                value={newProduct.category} 
-                onValueChange={(value) => setNewProduct({ ...newProduct, category: value })}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.filter(category => category !== 'All').map((category) => (
-                    <SelectItem key={category} value={category}>{category}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="image" className="text-right">
-                Image URL
-              </Label>
-              <Input
-                id="image"
-                value={newProduct.product_img_url}
-                onChange={(e) => setNewProduct({ ...newProduct, product_img_url: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="price" className="text-right">
-                Price
-              </Label>
-              <Input
-                id="price"
-                type="number"
-                value={newProduct.product_price}
-                onChange={(e) => setNewProduct({ ...newProduct, product_price: Number(e.target.value) })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="stock" className="text-right">
-                Stock
-              </Label>
-              <Input
-                id="stock"
-                type="number"
-                value={newProduct.product_stock}
-                onChange={(e) => setNewProduct({ ...newProduct, product_stock: Number(e.target.value) })}
-                className="col-span-3"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setIsAddProductOpen(false)} variant="outline">
-              Cancel
-            </Button>
-            <Button onClick={handleSaveProduct}>Save Product</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
