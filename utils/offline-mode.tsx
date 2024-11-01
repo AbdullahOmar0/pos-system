@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { openDB, DBSchema, IDBPDatabase } from 'idb'
+import { toast } from 'sonner'
 
 export interface OfflineTransaction {
   id: string
@@ -41,6 +42,27 @@ export function OfflineMode() {
   const [dbError, setDbError] = useState<string | null>(null)
   const supabase = createClient()
 
+  const showOfflineToast = useCallback(() => {
+    toast.error('Offline Mode', {
+      description: 'Transaktionen werden lokal gespeichert und bei Wiederherstellung der Verbindung synchronisiert.',
+      duration: 5000,
+    })
+  }, [])
+
+  const showOnlineToast = useCallback(() => {
+    toast.success('Online Mode', {
+      description: 'Alle Transaktionen werden direkt verarbeitet.',
+      duration: 5000,
+    })
+  }, [])
+
+  const showSyncingToast = useCallback(() => {
+    toast.info('Synchronizing', {
+      description: 'Synchronisiere offline Transaktionen...',
+      duration: 5000,
+    })
+  }, [])
+
   const initIndexedDB = useCallback(async () => {
     try {
       db = await openDB<MyDB>('pos-offline-db', 1, {
@@ -62,15 +84,23 @@ export function OfflineMode() {
     } catch (error) {
       console.error('Error initializing IndexedDB:', error)
       setDbError('Failed to initialize offline database. Please refresh the page.')
+      toast.error('Database Error', {
+        description: 'Failed to initialize offline database. Please refresh the page.',
+        duration: 5000,
+      })
     }
   }, [])
 
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true)
+      showOnlineToast()
       syncOfflineTransactions()
     }
-    const handleOffline = () => setIsOnline(false)
+    const handleOffline = () => {
+      setIsOnline(false)
+      showOfflineToast()
+    }
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -85,7 +115,7 @@ export function OfflineMode() {
         db = null
       }
     }
-  }, [initIndexedDB])
+  }, [initIndexedDB, showOnlineToast, showOfflineToast])
 
   const syncProductsToIndexedDB = async () => {
     if (!db) return
@@ -104,6 +134,10 @@ export function OfflineMode() {
       console.log('Products synced to IndexedDB')
     } catch (error) {
       console.error('Error syncing products to IndexedDB:', error)
+      toast.error('Sync Error', {
+        description: 'Failed to sync products to offline database.',
+        duration: 5000,
+      })
     }
   }
 
@@ -111,12 +145,11 @@ export function OfflineMode() {
     if (!db || !navigator.onLine) return
 
     setIsSyncing(true)
+    showSyncingToast()
     console.log('Starting offline transaction synchronization')
 
     try {
-      const tx = db.transaction('offlineTransactions', 'readwrite')
-      const offlineTransactions = await tx.store.getAll()
-
+      const offlineTransactions = await db.getAll('offlineTransactions')
       console.log(`Found ${offlineTransactions.length} offline transactions to sync`)
 
       for (const transaction of offlineTransactions) {
@@ -163,45 +196,30 @@ export function OfflineMode() {
             }
           }
 
-          await tx.store.delete(transaction.id)
+          await db.delete('offlineTransactions', transaction.id)
           console.log("Offline transaction synced and deleted successfully:", transaction.id)
         } catch (error) {
           console.error("Error syncing offline transaction:", error)
         }
       }
 
-      await tx.done
+      console.log('Offline transaction synchronization completed')
+      toast.success('Sync Completed', {
+        description: 'All offline transactions have been synchronized.',
+        duration: 5000,
+      })
     } catch (error) {
       console.error("Error during offline transaction synchronization:", error)
+      toast.error('Sync Error', {
+        description: 'Failed to synchronize some offline transactions.',
+        duration: 5000,
+      })
     } finally {
       setIsSyncing(false)
-      console.log('Offline transaction synchronization completed')
     }
   }
 
-  return (
-    <div className="p-4 bg-gray-100 rounded-lg shadow">
-      <h2 className="text-xl font-bold mb-4">Offline-Modus</h2>
-      {dbError ? (
-        <p className="text-red-600">{dbError}</p>
-      ) : (
-        <>
-          <p className="mb-2">
-            Status: <span className={isOnline ? "text-green-600" : "text-red-600"}>
-              {isOnline ? "Online" : "Offline"}
-            </span>
-          </p>
-          <p className="text-sm text-gray-600">
-            {isOnline 
-              ? isSyncing
-                ? "Synchronisiere offline Transaktionen..."
-                : "Alle Transaktionen werden direkt verarbeitet." 
-              : "Transaktionen werden lokal gespeichert und bei Wiederherstellung der Verbindung synchronisiert."}
-          </p>
-        </>
-      )}
-    </div>
-  )
+  return null
 }
 
 export const addOfflineTransaction = async (transaction: OfflineTransaction) => {
@@ -213,8 +231,16 @@ export const addOfflineTransaction = async (transaction: OfflineTransaction) => 
   try {
     await db.add('offlineTransactions', transaction);
     console.log("Offline transaction added successfully:", transaction.id);
+    toast.success('Transaction Saved', {
+      description: 'Transaction has been saved offline.',
+      duration: 3000,
+    })
   } catch (error) {
     console.error("Error adding offline transaction:", error);
+    toast.error('Save Error', {
+      description: 'Failed to save transaction offline.',
+      duration: 5000,
+    })
   }
 }
 
@@ -225,6 +251,10 @@ export const getProductFromIndexedDB = async (productId: string) => {
     return await db.get('products', productId)
   } catch (error) {
     console.error(`Error getting product ${productId} from IndexedDB:`, error)
+    toast.error('Product Fetch Error', {
+      description: `Failed to fetch product ${productId} from offline database.`,
+      duration: 5000,
+    })
     return null
   }
 }
@@ -245,8 +275,16 @@ export const updateProductStock = async (productId: string, quantityChange: numb
       console.log(`Updated stock for product ${productId}: new stock ${product.product_stock}`);
     } else {
       console.error(`Product ${productId} not found in IndexedDB`);
+      toast.error('Stock Update Error', {
+        description: `Product ${productId} not found in offline database.`,
+        duration: 5000,
+      })
     }
   } catch (error) {
     console.error(`Error updating stock for product ${productId}:`, error);
+    toast.error('Stock Update Error', {
+      description: `Failed to update stock for product ${productId} in offline database.`,
+      duration: 5000,
+    })
   }
 }

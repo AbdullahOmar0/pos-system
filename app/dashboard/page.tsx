@@ -23,6 +23,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
+
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -54,7 +56,7 @@ interface Category {
 }
 
 interface InventoryItem {
-  id: string
+  product_id: string
   inventory_product_name: string
   inventory_category_name: string
   inventory_product_img_path: string
@@ -91,8 +93,13 @@ export default function Dashboard() {
     created_at: new Date().toISOString(),
     expiry_date: ''
   })
+  
+
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+
   const [newInventoryItem, setNewInventoryItem] = useState<InventoryItem>({
     id: '',
+    product_id: '',
     inventory_product_name: '',
     inventory_category_name: '',
     inventory_product_img_path: '',
@@ -101,6 +108,8 @@ export default function Dashboard() {
     quantity: 0,
     inventory_expiry_date: ''
   })
+
+
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [editingInventoryItem, setEditingInventoryItem] = useState<InventoryItem | null>(null)
   const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false)
@@ -195,13 +204,15 @@ export default function Dashboard() {
     const { data, error } = await supabase
       .from('inventory')
       .select('*')
-
+  
     if (error) {
       console.error("Error fetching inventory items:", error)
     } else {
       setInventoryItems(data)
     }
   }
+
+  
 
   const fetchAnalyticsData = async () => {
     const startDate = dateRange.from || new Date()
@@ -365,33 +376,15 @@ export default function Dashboard() {
 
 
   const handleAddInventoryItem = async () => {
-    if (newInventoryItem.inventory_product_name && newInventoryItem.inventory_category_name) {
-      let imagePath = '';
-      if (selectedImage) {
-        try {
-          const { data, error } = await supabase.storage
-            .from('product_images')  // Changed from 'inventory_images' to 'product_images'
-            .upload(`inventory_${Date.now()}_${selectedImage.name}`, selectedImage);
-
-          if (error) {
-            console.error("Error uploading image:", error);
-            return;
-          }
-
-          imagePath = data.path;
-        } catch (error) {
-          console.error("Error uploading image:", error);
-          return;
-        }
-      }
-
+    if (newInventoryItem.product_id && newInventoryItem.quantity > 0) {
       try {
         const { data, error } = await supabase
           .from('inventory')
           .insert([{
+            product_id: newInventoryItem.product_id,
             inventory_product_name: newInventoryItem.inventory_product_name,
             inventory_category_name: newInventoryItem.inventory_category_name,
-            inventory_product_img_path: imagePath,
+            inventory_product_img_path: newInventoryItem.inventory_product_img_path,
             inventory_product_price: newInventoryItem.inventory_product_price,
             inventory_product_barcode: newInventoryItem.inventory_product_barcode,
             quantity: newInventoryItem.quantity,
@@ -404,6 +397,7 @@ export default function Dashboard() {
           console.log("Inventory item added successfully:", data);
           setNewInventoryItem({
             id: '',
+            product_id: '',
             inventory_product_name: '',
             inventory_category_name: '',
             inventory_product_img_path: '',
@@ -412,7 +406,7 @@ export default function Dashboard() {
             quantity: 0,
             inventory_expiry_date: ''
           });
-          setSelectedImage(null);
+          setSelectedProduct(null);
           fetchInventoryItems();
         }
       } catch (error) {
@@ -433,15 +427,15 @@ export default function Dashboard() {
         const { data, error } = await supabase.storage
           .from('product_images')
           .upload(`inventory_${Date.now()}_${selectedImage.name}`, selectedImage)
-
+  
         if (error) {
           console.error("Error uploading image:", error)
           return
         }
-
+  
         imagePath = data.path
       }
-
+  
       const { error } = await supabase
         .from('inventory')
         .update({
@@ -453,8 +447,8 @@ export default function Dashboard() {
           quantity: editingInventoryItem.quantity,
           inventory_expiry_date: editingInventoryItem.inventory_expiry_date
         })
-        .eq('id', editingInventoryItem.id)
-
+        .eq('product_id', editingInventoryItem.product_id)
+  
       if (error) {
         console.error("Error updating inventory item:", error)
       } else {
@@ -466,29 +460,45 @@ export default function Dashboard() {
     }
   }
 
-  const handleDeleteItem = async () => {
-    if (itemToDelete) {
-      const { id, type } = itemToDelete
-      const { error } = await supabase
-        .from(type === 'product' ? 'products' : type === 'category' ? 'category' : 'inventory')
-        .delete()
-        .eq('id', id)
-
-      if (error) {
-        console.error(`Error deleting ${type}:`, error)
-      } else {
-        if (type === 'product') {
-          fetchProducts()
-        } else if (type === 'category') {
-          fetchCategories()
-        } else {
-          fetchInventoryItems()
-        }
-      }
-      setIsDeleteAlertOpen(false)
-      setItemToDelete(null)
+  const handleProductSelect = (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    if (product) {
+      setSelectedProduct(product)
+      setNewInventoryItem({
+        ...newInventoryItem,
+        product_id: product.id,
+        inventory_product_name: product.product_name,
+        inventory_category_name: product.category,
+        inventory_product_img_path: product.product_img_path,
+        inventory_product_barcode: product.product_barcode,
+      })
     }
   }
+
+  // Aktualisierte handleDeleteItem-Funktion
+const handleDeleteItem = async () => {
+  if (itemToDelete) {
+    const { id, type } = itemToDelete
+    const { error } = await supabase
+      .from(type === 'product' ? 'products' : type === 'category' ? 'category' : 'inventory')
+      .delete()
+      .eq(type === 'inventory' ? 'product_id' : 'id', id)
+
+    if (error) {
+      console.error(`Error deleting ${type}:`, error)
+    } else {
+      if (type === 'product') {
+        fetchProducts()
+      } else if (type === 'category') {
+        fetchCategories()
+      } else {
+        fetchInventoryItems()
+      }
+    }
+    setIsDeleteAlertOpen(false)
+    setItemToDelete(null)
+  }
+}
 
   const handleAddCategory = async () => {
     if (newCategory) {
@@ -629,7 +639,7 @@ export default function Dashboard() {
       (inventoryStockFilter === 'low' && item.quantity < 10) ||
       (inventoryStockFilter === 'medium' && item.quantity >= 10 && item.quantity < 50) ||
       (inventoryStockFilter === 'high' && item.quantity >= 50)
-
+  
     return matchesSearch && matchesCategory && matchesStock
   })
 
@@ -1343,134 +1353,125 @@ export default function Dashboard() {
         </TabsContent>
         {/* inventory-Tab */}
         <TabsContent value="inventory">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <div>
-                <CardTitle className="text-2xl font-bold">Inventory</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Manage your inventory and stock levels.
-                </p>
-              </div>
-              <div className="flex space-x-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsInventoryFiltersVisible(!isInventoryFiltersVisible)}
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Filter
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div>
+              <CardTitle className="text-2xl font-bold">Inventory</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Manage your inventory and stock levels.
+              </p>
+            </div>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Inventory Item
                 </Button>
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Inventory Item
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[625px]">
-                    <DialogHeader>
-                      <DialogTitle>Add New Inventory Item</DialogTitle>
-                      <DialogDescription>
-                        Create a new inventory item here. Click save when you're done.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_product_name" className="text-right">
-                          Name
-                        </Label>
-                        <Input
-                          id="inventory_product_name"
-                          value={newInventoryItem.inventory_product_name}
-                          onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_name: e.target.value })}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_category_name" className="text-right">
-                          Category
-                        </Label>
-                        <Select 
-                          value={newInventoryItem.inventory_category_name} 
-                          onValueChange={(value) => setNewInventoryItem({ ...newInventoryItem, inventory_category_name: value })}
-                        >
-                          <SelectTrigger className="col-span-3">
-                            <SelectValue placeholder="Select a category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {categories.map((category) => (
-                              <SelectItem key={category.id} value={category.category}>
-                                {category.category}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_product_image" className="text-right">
-                          Image
-                        </Label>
-                        <Input
-                          id="inventory_product_image"
-                          type="file"
-                          onChange={handleImageChange}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_product_price" className="text-right">
-                          Price
-                        </Label>
-                        <Input
-                          id="inventory_product_price"
-                          type="number"
-                          value={newInventoryItem.inventory_product_price}
-                          onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_price: parseFloat(e.target.value) })}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_product_barcode" className="text-right">
-                          Barcode
-                        </Label>
-                        <Input
-                          id="inventory_product_barcode"
-                          value={newInventoryItem.inventory_product_barcode}
-                          onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_barcode: e.target.value })}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="quantity" className="text-right">
-                          Quantity
-                        </Label>
-                        <Input
-                          id="quantity"
-                          type="number"
-                          value={newInventoryItem.quantity}
-                          onChange={(e) => setNewInventoryItem({ ...newInventoryItem, quantity: parseInt(e.target.value) })}
-                          className="col-span-3"
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="inventory_expiry_date" className="text-right">
-                          Expiry Date
-                        </Label>
-                        <Input
-                          id="inventory_expiry_date"
-                          type="date"
-                          value={newInventoryItem.inventory_expiry_date}
-                          onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_expiry_date: e.target.value })}
-                          className="col-span-3"
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button type="submit" onClick={handleAddInventoryItem}>Save Inventory Item</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardHeader>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[625px]">
+                <DialogHeader>
+                  <DialogTitle>Add New Inventory Item</DialogTitle>
+                  <DialogDescription>
+                    Select a product and add inventory details. Click save when you're done.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="product_select" className="text-right">
+                      Select Product
+                    </Label>
+                    <Select
+                      value={selectedProduct?.id || ''}
+                      onValueChange={handleProductSelect}
+                    >
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select a product" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.map((product) => (
+                          <SelectItem key={product.id} value={product.id}>
+                            {product.product_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="inventory_product_name" className="text-right">
+                      Name
+                    </Label>
+                    <Input
+                      id="inventory_product_name"
+                      value={newInventoryItem.inventory_product_name}
+                      className="col-span-3"
+                      disabled
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="inventory_category_name" className="text-right">
+                      Category
+                    </Label>
+                    <Input
+                      id="inventory_category_name"
+                      value={newInventoryItem.inventory_category_name}
+                      className="col-span-3"
+                      disabled
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="inventory_product_barcode" className="text-right">
+                      Barcode
+                    </Label>
+                    <Input
+                      id="inventory_product_barcode"
+                      value={newInventoryItem.inventory_product_barcode}
+                      className="col-span-3"
+                      disabled
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="inventory_product_price" className="text-right">
+                      Price
+                    </Label>
+                    <Input
+                      id="inventory_product_price"
+                      type="number"
+                      value={newInventoryItem.inventory_product_price}
+                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_price: parseFloat(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="quantity" className="text-right">
+                      Quantity
+                    </Label>
+                    <Input
+                      id="quantity"
+                      type="number"
+                      value={newInventoryItem.quantity}
+                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, quantity: parseInt(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="inventory_expiry_date" className="text-right">
+                      Expiry Date
+                    </Label>
+                    <Input
+                      id="inventory_expiry_date"
+                      type="date"
+                      value={newInventoryItem.inventory_expiry_date}
+                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_expiry_date: e.target.value })}
+                      className="col-span-3"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit" onClick={handleAddInventoryItem}>Save Inventory Item</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </CardHeader>
             <CardContent>
               {isInventoryFiltersVisible && (
                 <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1515,74 +1516,74 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Image</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Expiry Date</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredInventory.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        {item.inventory_product_img_path ? (
-                          <Image
-                            src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
-                            alt={item.inventory_product_name}
-                            width={50}
-                            height={50}
-                            className="rounded-md"
-                          />
-                        ) : (
-                          <div className="w-[50px] h-[50px] bg-gray-200 rounded-md flex items-center justify-center">
-                            No Image
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-medium">{item.inventory_product_name}</TableCell>
-                      <TableCell>{item.inventory_category_name}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell>{formatCurrency(item.inventory_product_price)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getExpiryStatus(item.inventory_expiry_date).color}`}>
-                            {getExpiryStatus(item.inventory_expiry_date).text}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditInventoryItem(item)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => {
-                              setItemToDelete({ id: item.id, type: 'inventory' })
-                              setIsDeleteAlertOpen(true)
-                            }}>
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Image</TableHead>
+      <TableHead>Name</TableHead>
+      <TableHead>Category</TableHead>
+      <TableHead>Quantity</TableHead>
+      <TableHead>Price</TableHead>
+      <TableHead>Expiry Date</TableHead>
+      <TableHead>Actions</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {filteredInventory.map((item) => (
+      <TableRow key={item.product_id}>
+        <TableCell>
+          {item.inventory_product_img_path ? (
+            <Image
+              src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
+              alt={item.inventory_product_name}
+              width={50}
+              height={50}
+              className="rounded-md"
+            />
+          ) : (
+            <div className="w-[50px] h-[50px] bg-gray-200 rounded-md flex items-center justify-center">
+              No Image
+            </div>
+          )}
+        </TableCell>
+        <TableCell className="font-medium">{item.inventory_product_name}</TableCell>
+        <TableCell>{item.inventory_category_name}</TableCell>
+        <TableCell>{item.quantity}</TableCell>
+        <TableCell>{formatCurrency(item.inventory_product_price)}</TableCell>
+        <TableCell>
+          <div className="flex items-center">
+            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getExpiryStatus(item.inventory_expiry_date).color}`}>
+              {getExpiryStatus(item.inventory_expiry_date).text}
+            </span>
+          </div>
+        </TableCell>
+        <TableCell>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleEditInventoryItem(item)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                setItemToDelete({ id: item.product_id, type: 'inventory' })
+                setIsDeleteAlertOpen(true)
+              }}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
             </CardContent>
           </Card>
         </TabsContent>

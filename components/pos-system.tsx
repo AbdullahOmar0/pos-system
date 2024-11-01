@@ -17,6 +17,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Toaster, toast } from 'sonner'
+
 import Image from 'next/image'
 import { v4 as uuidv4 } from 'uuid'
 import { OfflineMode, addOfflineTransaction, OfflineTransaction, updateProductStock, getProductFromIndexedDB } from '@/utils/offline-mode'
@@ -311,7 +313,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="bg-white shadow-sm p-4">
+    <header className="bg-white shadow-sm p-4">
         <div className="flex justify-between items-center">
           <div className="flex space-x-4 overflow-x-auto">
             {categories.map((category) => (
@@ -339,6 +341,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
         </div>
         <OfflineMode />
       </header>
+      <Toaster position="bottom-right" />
 
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4 bg-gray-100">
