@@ -1,11 +1,26 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, memo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
-import { CalendarIcon, DollarSign, ShoppingCart, TrendingUp, Users, Plus, Pencil, Trash2, Upload, MoreHorizontal, Search, Settings } from 'lucide-react'
+import { CalendarIcon, 
+  DollarSign, 
+  ShoppingCart, 
+  TrendingUp, 
+  Users, 
+  Plus, 
+  Pencil, 
+  Trash2, 
+  Upload, 
+  MoreHorizontal, 
+  Search, 
+  Settings, 
+  AlertTriangle,
+  Package,
+  Bell} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -22,8 +37,29 @@ import Image from 'next/image'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { Footer } from "@/components/footer"
+import dynamic from 'next/dynamic'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import { useTranslation } from '@/hooks/useTranslation'
 
 
+// Komponenten dynamisch importieren
+const DashboardCharts = dynamic(() => import('@/components/dashboard/DashboardCharts'), {
+  loading: () => <div>Loading charts...</div>,
+  ssr: false // Da Charts client-side sind
+})
+
+const InventorySection = dynamic(() => import('@/components/dashboard/InventorySection'), {
+  loading: () => <div>Loading inventory...</div>
+})
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -76,12 +112,49 @@ interface TopProduct {
   total_sold: number
 }
 
+interface Notification {
+  id: string
+  type: 'low_stock' | 'expiring_soon'
+  message: string
+  read: boolean
+  created_at: Date
+}
+
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
 
+// Füge diese Hilfsfunktion am Anfang der Datei hinzu, nach den Imports
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// Fügen Sie diesen custom hook hinzu
+const useDebounce = (value: string, delay: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
 export default function Dashboard() {
+  const { t } = useTranslation()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [newProduct, setNewProduct] = useState<Product>({ 
     id: '', 
     product_name: '', 
@@ -94,11 +167,165 @@ export default function Dashboard() {
     expiry_date: ''
   })
   
+  useEffect(() => {
+    let isSubscribed = true;
+
+    const checkNotifications = async () => {
+      if (!isSubscribed) return;
+
+      // Hole existierende Benachrichtigungen
+      const { data: existingNotifications, error: fetchError } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (fetchError || !isSubscribed) {
+        console.error("Error fetching notifications:", fetchError)
+        return
+      }
+
+      const today = new Date()
+      let newNotificationsToAdd: Notification[] = []
+
+      // Hilfsfunktion zum Prüfen von Duplikaten
+      const isDuplicate = (type: 'low_stock' | 'expiring_soon', message: string) => {
+        return existingNotifications?.some(n => n.type === type && n.message === message) ||
+               newNotificationsToAdd.some(n => n.type === type && n.message === message)
+      }
+
+      // Überprüfe jedes Produkt für neue Benachrichtigungen
+      for (const product of products) {
+        if (!isSubscribed) return;
+
+        // Überprüfe niedrigen Lagerbestand
+        if (product.product_stock < 10) {
+          const message = t('dashboard.notifications.messages.lowStock', {
+            productName: product.product_name,
+            quantity: product.product_stock
+          })
+          
+          if (!isDuplicate('low_stock', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'low_stock',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        }
+
+        // Überprüfe Ablaufdatum
+        const expiryDate = parseISO(product.expiry_date)
+        const daysUntilExpiry = differenceInDays(expiryDate, today)
+        
+        if (daysUntilExpiry < 0) {
+          const message = t('dashboard.notifications.messages.expired', {
+            productName: product.product_name,
+            days: Math.abs(daysUntilExpiry)
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        } else if (daysUntilExpiry === 0) {
+          const message = t('dashboard.notifications.messages.expirestoday', {
+            productName: product.product_name
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        } else if (daysUntilExpiry <= 30) {
+          const message = t('dashboard.notifications.messages.expiresSoon', {
+            productName: product.product_name,
+            days: daysUntilExpiry
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        }
+      }
+
+      if (!isSubscribed) return;
+
+      // Füge neue Benachrichtigungen zur Datenbank hinzu
+      if (newNotificationsToAdd.length > 0) {
+        const { error: insertError } = await supabase
+          .from('notifications')
+          .insert(newNotificationsToAdd.map(n => ({
+            ...n,
+            created_at: n.created_at instanceof Date ? n.created_at.toISOString() : n.created_at
+          })))
+
+        if (insertError) {
+          console.error("Error inserting notifications:", insertError)
+          return
+        }
+      }
+
+      if (!isSubscribed) return;
+
+      // Aktualisiere den Frontend-State mit allen Benachrichtigungen
+      setNotifications([
+        ...newNotificationsToAdd,
+        ...(existingNotifications || [])
+      ])
+    }
+
+    checkNotifications()
+    const interval = setInterval(checkNotifications, 300000) // Alle 5 Minuten
+
+    return () => {
+      isSubscribed = false
+      clearInterval(interval)
+    }
+  }, [products])
+
+  const markNotificationAsRead = async (id: string) => {
+    // Update Frontend-State
+    setNotifications(prevNotifications =>
+      prevNotifications.map(notification =>
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    )
+
+    // Update Datenbank
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', id)
+
+    if (error) {
+      console.error("Error marking notification as read:", error)
+    }
+  }
+
+  const unreadNotificationsCount = notifications.filter(n => !n.read).length
+
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
 
   const [newInventoryItem, setNewInventoryItem] = useState<InventoryItem>({
-    id: '',
     product_id: '',
     inventory_product_name: '',
     inventory_category_name: '',
@@ -117,7 +344,7 @@ export default function Dashboard() {
   const [newCategory, setNewCategory] = useState('')
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isEditCategoryDialogOpen, setIsEditCategoryDialogOpen] = useState(false)
-  const [dateRange, setDateRange] = useState<{from: Date | undefined, to: Date | undefined}>({
+  const [dateRange, setDateRange] = useState<DateRange>({
     from: startOfDay(new Date()),
     to: endOfDay(new Date())
   })
@@ -143,6 +370,18 @@ export default function Dashboard() {
   const [isInventoryFiltersVisible, setIsInventoryFiltersVisible] = useState(false)
   const [dateRangeLabel, setDateRangeLabel] = useState("Today")
   const router = useRouter()
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearchTerm = useDebounce(searchInput, 300);
+
+  // Fügen Sie diesen State hinzu
+  const [inventoryExpiryFilter, setInventoryExpiryFilter] = useState('all')
+
+  // Fügen Sie diese Zeile zu den vorhandenen States hinzu
+  const [activeTab, setActiveTab] = useState("overview")
+
+  useEffect(() => {
+    setInventorySearchTerm(debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
 
   useEffect(() => {
     fetchCategories()
@@ -396,7 +635,6 @@ export default function Dashboard() {
         } else {
           console.log("Inventory item added successfully:", data);
           setNewInventoryItem({
-            id: '',
             product_id: '',
             inventory_product_name: '',
             inventory_category_name: '',
@@ -578,6 +816,7 @@ const handleDeleteItem = async () => {
       setDateRangeLabel("Select date range")
       return
     }
+    
     if (isSameDay(dateRange.from, dateRange.to || dateRange.from)) {
       if (isSameDay(dateRange.from, new Date())) {
         setDateRangeLabel("Today")
@@ -586,11 +825,20 @@ const handleDeleteItem = async () => {
       } else {
         setDateRangeLabel(format(dateRange.from, "PPP"))
       }
-    } else if (isSameDay(dateRange.from, startOfWeek(dateRange.from)) && isSameDay(dateRange.to || dateRange.from, endOfWeek(dateRange.from))) {
+    } else if (
+      isSameDay(dateRange.from, startOfWeek(dateRange.from)) && 
+      isSameDay(dateRange.to || dateRange.from, endOfWeek(dateRange.from))
+    ) {
       setDateRangeLabel("This Week")
-    } else if (isSameDay(dateRange.from, startOfMonth(dateRange.from)) && isSameDay(dateRange.to || dateRange.from, endOfMonth(dateRange.from))) {
+    } else if (
+      isSameDay(dateRange.from, startOfMonth(dateRange.from)) && 
+      isSameDay(dateRange.to || dateRange.from, endOfMonth(dateRange.from))
+    ) {
       setDateRangeLabel("This Month")
-    } else if (isSameDay(dateRange.from, startOfYear(dateRange.from)) && isSameDay(dateRange.to || dateRange.from, endOfYear(dateRange.from))) {
+    } else if (
+      isSameDay(dateRange.from, startOfYear(dateRange.from)) && 
+      isSameDay(dateRange.to || dateRange.from, endOfYear(dateRange.from))
+    ) {
       setDateRangeLabel("This Year")
     } else {
       setDateRangeLabel(`${format(dateRange.from, "PPP")} - ${format(dateRange.to || dateRange.from, "PPP")}`)
@@ -632,29 +880,121 @@ const handleDeleteItem = async () => {
     return matchesSearch && matchesCategory && matchesExpiryStatus && matchesStock
   })
 
-  const filteredInventory = inventoryItems.filter((item) => {
-    const matchesSearch = item.inventory_product_name.toLowerCase().includes(inventorySearchTerm.toLowerCase())
-    const matchesCategory = inventoryCategoryFilter === 'all' || item.inventory_category_name === inventoryCategoryFilter
-    const matchesStock = inventoryStockFilter === 'all' || 
-      (inventoryStockFilter === 'low' && item.quantity < 10) ||
-      (inventoryStockFilter === 'medium' && item.quantity >= 10 && item.quantity < 50) ||
-      (inventoryStockFilter === 'high' && item.quantity >= 50)
-  
-    return matchesSearch && matchesCategory && matchesStock
-  })
+  // Memoize komplexe Berechnungen
+  const filteredInventory = useMemo(() => {
+    return inventoryItems.filter(item => {
+      const matchesSearch = item.inventory_product_name.toLowerCase().includes(inventorySearchTerm.toLowerCase())
+      const matchesCategory = inventoryCategoryFilter === 'all' || item.inventory_category_name === inventoryCategoryFilter
+      const matchesStock = inventoryStockFilter === 'all' || 
+        (inventoryStockFilter === 'low' && item.quantity < 10) ||
+        (inventoryStockFilter === 'medium' && item.quantity >= 10 && item.quantity < 50) ||
+        (inventoryStockFilter === 'high' && item.quantity >= 50)
+
+      // Neue Logik für den Expiry Filter
+      const today = new Date()
+      const expiryDate = parseISO(item.inventory_expiry_date)
+      const daysUntilExpiry = differenceInDays(expiryDate, today)
+      
+      const matchesExpiry = inventoryExpiryFilter === 'all' ||
+        (inventoryExpiryFilter === 'expired' && daysUntilExpiry < 0) ||
+        (inventoryExpiryFilter === 'expires-today' && daysUntilExpiry === 0) ||
+        (inventoryExpiryFilter === 'expires-soon' && daysUntilExpiry > 0 && daysUntilExpiry <= 30) ||
+        (inventoryExpiryFilter === 'good' && daysUntilExpiry > 30)
+
+      return matchesSearch && matchesCategory && matchesStock && matchesExpiry
+    })
+  }, [inventoryItems, inventorySearchTerm, inventoryCategoryFilter, inventoryStockFilter, inventoryExpiryFilter])
+
+  // Memoize Chart Components
+  const SalesChart = memo(({ data }: { data: SalesData[] }) => {
+    return (
+      <ChartContainer config={{
+        sales: {
+          label: "Sales",
+          color: "hsl(var(--chart-1))",
+        },
+      }}>
+        <ResponsiveContainer>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="total" stroke="var(--color-sales)" />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartContainer>
+    );
+  });
+
+  // Füge diese neue Funktion hinzu
+  const handlePopoverOpenChange = async (open: boolean) => {
+    if (open) {
+      const unreadNotifications = notifications.filter(n => !n.read)
+      
+      if (unreadNotifications.length > 0) {
+        // Update Frontend-State
+        const updatedNotifications = notifications.map(notification => ({
+          ...notification,
+          read: true
+        }))
+        setNotifications(updatedNotifications)
+
+        // Update Datenbank für jede ungelesene Benachrichtigung einzeln
+        for (const notification of unreadNotifications) {
+          const { error } = await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('id', notification.id)
+
+          if (error) {
+            console.error(`Error updating notification ${notification.id}:`, error)
+          }
+        }
+      }
+    }
+  }
+
+  const [productsCurrentPage, setProductsCurrentPage] = useState(1)
+  const productsPerPage = 10
+
+  // Fügen Sie diese Berechnung nach den anderen useMemo-Hooks hinzu
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (productsCurrentPage - 1) * productsPerPage
+    return filteredProducts.slice(startIndex, startIndex + productsPerPage)
+  }, [filteredProducts, productsCurrentPage])
+
+  const totalProductPages = useMemo(() => {
+    return Math.ceil(filteredProducts.length / productsPerPage)
+  }, [filteredProducts])
+
+  // Nach den anderen useState Hooks (ca. Zeile 329) fügen Sie hinzu:
+  const [inventoryCurrentPage, setInventoryCurrentPage] = useState(1)
+  const inventoryPerPage = 10
+
+  // Nach den anderen useMemo Hooks fügen Sie hinzu:
+  const paginatedInventory = useMemo(() => {
+    const startIndex = (inventoryCurrentPage - 1) * inventoryPerPage
+    return filteredInventory.slice(startIndex, startIndex + inventoryPerPage)
+  }, [filteredInventory, inventoryCurrentPage])
+
+  const totalInventoryPages = useMemo(() => {
+    return Math.ceil(filteredInventory.length / inventoryPerPage)
+  }, [filteredInventory])
 
   return (
+    <div className='flex h-screen flex-col'>
     <div className="flex-1 space-y-4 p-8 pt-6">
       {/* Kopfzeile des Dashboards */}
       <div className="flex items-center justify-between space-y-2">
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-        <div className="flex items-center space-x-2">
-          <Popover>
+       
+        <div className="flex items-center space-x-2 gap-2">
+        <Popover>
             <PopoverTrigger asChild>
               <Button
                 id="date"
                 variant={"outline"}
-                className={`w-[300px] justify-start text-left font-normal`}
+                className={`w-[360px] justify-start text-left font-normal`}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {getDateRangeText()}
@@ -663,14 +1003,14 @@ const handleDeleteItem = async () => {
             <PopoverContent className="w-auto p-0" align="start">
               <Select onValueChange={setPresetRange}>
                 <SelectTrigger className="w-[300px]">
-                  <SelectValue placeholder="Select a preset" />
+                  <SelectValue placeholder={t('dashboard.dateRanges.selectRange')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="yesterday">Yesterday</SelectItem>
-                  <SelectItem value="week">This Week</SelectItem>
-                  <SelectItem value="month">This Month</SelectItem>
-                  <SelectItem value="year">This Year</SelectItem>
+                  <SelectItem value="today">{t('dashboard.dateRanges.today')}</SelectItem>
+                  <SelectItem value="yesterday">{t('dashboard.dateRanges.yesterday')}</SelectItem>
+                  <SelectItem value="week">{t('dashboard.dateRanges.thisWeek')}</SelectItem>
+                  <SelectItem value="month">{t('dashboard.dateRanges.thisMonth')}</SelectItem>
+                  <SelectItem value="year">{t('dashboard.dateRanges.thisYear')}</SelectItem>
                 </SelectContent>
               </Select>
               <div className="border-t border-gray-200 p-3">
@@ -685,83 +1025,148 @@ const handleDeleteItem = async () => {
               </div>
             </PopoverContent>
           </Popover>
+        <Popover onOpenChange={handlePopoverOpenChange}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" className="relative">
+               <Bell className="h-4 w-4 transform scale-x-[-1]" />
+                {unreadNotificationsCount > 0 && (
+                  <Badge className="absolute -top-2 right-6 h-5 w-5 rounded-full p-0 text-xs">
+                    {unreadNotificationsCount}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-3" align="end">
+              
+                <CardHeader>
+                  <CardTitle>{t('dashboard.notifications.title')}</CardTitle>
+                </CardHeader>
+               
+                  <ScrollArea className="h-[300px] w-full rounded-md">
+                    {notifications.length > 0 ? (
+                      notifications.map(notification => (
+                        <div
+                          key={notification.id}
+                          className={cn(
+                            "flex items-start space-x-4 p-4 hover:bg-accent transition-colors duration-200",
+                            notification.read ? "opacity-60" : ""
+                          )}
+                          onClick={() => markNotificationAsRead(notification.id)}
+                        >
+                          <div className="flex-1  text-right">
+                            <p className="text-sm font-medium">{notification.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {format(notification.created_at, 'PPp')}
+                            </p>
+                          </div>
+                          <div className={cn(
+                            "rounded-full p-2",
+                            notification.type === 'low_stock' ? "bg-yellow-100" : "bg-red-100"
+                          )}>
+                            {notification.type === 'low_stock' ? (
+                              <Package className="h-4 w-4 text-yellow-600" />
+                            ) : (
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                            )}
+                          </div>
+                          
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <p className="text-center text-muted-foreground">
+                          {t('dashboard.notifications.noNotifications')}
+                        </p>
+                      </div>
+                    )}
+                  </ScrollArea>
+               
+              
+            </PopoverContent>
+          </Popover>
+          
+
+         
         </div>
+        <h2 className="text-3xl font-bold tracking-tight">{t('dashboard.title')}</h2>
       </div>
       {/* Tabs für verschiedene Bereiche des Dashboards */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="products">Products</TabsTrigger>
-          <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="inventory">Inventory</TabsTrigger>
-        </TabsList>
+      <Tabs dir='rtl' value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <div className="flex justify-start ">
+          <TabsList >
+            <TabsTrigger value="overview">{t('dashboard.overview.title')}</TabsTrigger>
+            <TabsTrigger value="products">{t('dashboard.products.title')}</TabsTrigger>
+            <TabsTrigger value="categories">{t('dashboard.categories.title')}</TabsTrigger>
+            <TabsTrigger value="inventory">{t('dashboard.inventory.title')}</TabsTrigger>
+          </TabsList>
+        </div>
          {/* overview-Tab */}
-        <TabsContent value="overview" className="space-y-4">
+        <TabsContent  dir='rtl' value="overview" className="space-y-4">
           {/* Karten für Gesamtumsatz, Verkäufe, Kunden und durchschnittlichen Bestellwert */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div  className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Total Revenue ({dateRangeLabel})
+                  {t('dashboard.overview.totalRevenue')} ({dateRangeLabel})
                 </CardTitle>
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
                 <p className="text-xs text-muted-foreground">
-                  +20% from previous period
+                  +20% {t('dashboard.overview.fromPreviousPeriod')}
                 </p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Sales ({dateRangeLabel})
+                  {t('dashboard.overview.sales')} ({dateRangeLabel})
                 </CardTitle>
                 <ShoppingCart className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">+{totalSales}</div>
                 <p className="text-xs text-muted-foreground">
-                  +180.1% from previous period
+                  +180.1% {t('dashboard.overview.fromPreviousPeriod')}
                 </p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Customers ({dateRangeLabel})
+                  {t('dashboard.overview.customers')} ({dateRangeLabel})
                 </CardTitle>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">+{totalCustomers}</div>
                 <p className="text-xs text-muted-foreground">
-                  +19% from previous period
+                  +19% {t('dashboard.overview.fromPreviousPeriod')}
                 </p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Average Order Value ({dateRangeLabel})
+                  {t('dashboard.overview.averageOrderValue')} ({dateRangeLabel})
                 </CardTitle>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</div>
                 <p className="text-xs text-muted-foreground">
-                  +201 from previous period
+                  +201 {t('dashboard.overview.fromPreviousPeriod')}
                 </p>
               </CardContent>
             </Card>
           </div>
            {/* Diagramme für Verkaufsübersicht und Top-Produkte */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+            
+            <Card >
               <CardHeader>
-                <CardTitle>Sales Overview ({dateRangeLabel})</CardTitle>
+                <CardTitle>{t('dashboard.overview.salesOverview')}</CardTitle>
               </CardHeader>
               <CardContent className="pl-2">
                 <ChartContainer config={{
@@ -771,20 +1176,49 @@ const handleDeleteItem = async () => {
                   },
                 }} className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={salesData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="total" fill="var(--color-sales)" radius={[4, 4, 0, 0]} />
+                    <BarChart
+                      data={salesData}
+                      layout="horizontal"
+                    >
+                      <CartesianGrid 
+                       
+                      />
+                      <XAxis 
+                        dataKey="date" 
+                        reversed={false}
+                        orientation="bottom"
+                        tick={{ 
+                          textAnchor: 'end',
+                          fill: 'currentColor',
+                          fontSize: 12
+                        }}
+                      />
+                      <YAxis 
+                        orientation="right"
+                        tick={{ 
+                          textAnchor: 'end',
+                          fill: 'currentColor',
+                          fontSize: 12
+                        }}
+                        reversed={false}
+                      />
+                      <ChartTooltip 
+                        content={<ChartTooltipContent />}
+                        cursor={{ fill: 'transparent' }}
+                      />
+                      <Bar 
+                        dataKey="total" 
+                        fill="var(--color-sales)" 
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
               </CardContent>
             </Card>
-            <Card className="col-span-3">
+            <Card >
               <CardHeader>
-                <CardTitle>Top Products ({dateRangeLabel})</CardTitle>
+                <CardTitle>{t('dashboard.overview.topProducts')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartContainer config={{
@@ -795,20 +1229,166 @@ const handleDeleteItem = async () => {
                 }} className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     {topProducts.length > 0 ? (
-                      <BarChart data={topProducts} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" />
-                        <YAxis dataKey="product_name" type="category" />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar dataKey="total_sold" fill="var(--color-sales)" />
+                      <BarChart 
+                        data={topProducts} 
+                        layout="vertical"
+                      >
+                        <CartesianGrid 
+                          strokeDasharray="3 3"
+                          horizontal={true}
+                          vertical={true}
+                        />
+                        <XAxis 
+                          type="number"
+                          orientation="top"
+                          reversed={true}
+                          tick={{ 
+                            textAnchor: 'end',
+                            fill: 'currentColor',
+                            fontSize: 12
+                          }}
+                        />
+                        <YAxis 
+                          dataKey="product_name" 
+                          type="category"
+                          orientation="right"
+                          tick={{ 
+                            textAnchor: 'end',
+                            fill: 'currentColor',
+                            fontSize: 12,
+                            dx: 5
+                          }}
+                          reversed={false}
+                        />
+                        <ChartTooltip 
+                          content={<ChartTooltipContent />}
+                          cursor={{ fill: 'transparent' }}
+                        />
+                        <Bar 
+                          dataKey="total_sold" 
+                          fill="var(--color-sales)"
+                        />
                       </BarChart>
                     ) : (
                       <div className="flex items-center justify-center h-full">
-                        <p className="text-muted-foreground">No data available for the selected period</p>
+                        <p className="text-muted-foreground">
+                          {t('dashboard.overview.noDataAvailable')}
+                        </p>
                       </div>
                     )}
                   </ResponsiveContainer>
                 </ChartContainer>
+              </CardContent>
+            </Card>
+            <Card >
+              <CardHeader>
+                <CardTitle>{t('dashboard.analytics.salesByCategory')}</CardTitle>
+              </CardHeader>
+              <CardContent className=' overflow-hidden flex justify-center'>
+                <ChartContainer config={{
+                  category: {
+                    label: "Category",
+                    color: "hsl(var(--chart-1))",
+                  },
+                }} className="h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    {salesByCategory.length > 0 ? (
+                      <PieChart >
+                        <Pie
+                          data={salesByCategory}
+                          cx="50%"
+                          cy="40%"
+                          labelLine={false}
+                          outerRadius={115}
+                          fill="#8884d8"
+                          dataKey="value"
+                          nameKey="name"
+                          label={false}
+                        >
+                          {salesByCategory.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={COLORS[index % COLORS.length]} 
+                            />
+                          ))}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Legend
+                          layout="horizontal"
+                          verticalAlign="bottom"
+                          align="center"
+                          iconType="circle"
+                          iconSize={12}
+                          wrapperStyle={{
+                            paddingTop: "10px",
+                            fontSize: "14px"
+                          }}
+                          formatter={(value, entry, index) => (
+                            <span className="mr-4 text-base font-medium">
+                              {value} - {(salesByCategory[index]?.value || 0)}
+                            </span>
+                          )}
+                        />
+                      </PieChart>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <p className="text-muted-foreground">
+                          {t('dashboard.analytics.noDataAvailable')}
+                        </p>
+                      </div>
+                    )}
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+            <Card >
+              <CardHeader>
+                <CardTitle>{t('dashboard.analytics.keyMetrics')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-6">
+                  {/* Total Revenue Metric */}
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-background/50 border">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {t('dashboard.analytics.totalRevenue')}
+                      </p>
+                      <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
+                    </div>
+                    <div className="p-3 rounded-full bg-primary/10">
+                      <DollarSign className="h-6 w-6 text-primary" />
+                    </div>
+                  </div>
+
+                  {/* Average Order Value Metric */}
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-background/50 border">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {t('dashboard.analytics.averageOrderValue')}
+                      </p>
+                      <p className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</p>
+                    </div>
+                    <div className="p-3 rounded-full bg-green-100">
+                      <TrendingUp className="h-6 w-6 text-green-600" />
+                    </div>
+                  </div>
+
+                  {/* Total Orders Metric */}
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-background/50 border">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {t('dashboard.analytics.totalOrders')}
+                      </p>
+                      <div className="flex items-baseline space-x-2">
+                        <p className="text-2xl font-bold">{totalSales}</p>
+                        <span className="text-sm font-medium text-green-600">+12.5%</span>
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-full bg-blue-100">
+                      <ShoppingCart className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -818,37 +1398,37 @@ const handleDeleteItem = async () => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
-                <CardTitle className="text-2xl font-bold">Products</CardTitle>
+                <CardTitle className="text-2xl font-bold">{t('dashboard.products.title')}</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Manage your products and view their sales performance.
+                  {t('dashboard.products.description')}
                 </p>
               </div>
-              <div className="flex space-x-2">
+              <div className="flex space-x-2 gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setIsFiltersVisible(!isFiltersVisible)}
                 >
                   <Settings className="mr-2 h-4 w-4" />
-                  Filter
+                  {t('common.filter')}
                 </Button>
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="mr-2 h-4 w-4" />
-                      Add Product
+                      {t('dashboard.products.addProduct')}
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-[625px]">
                     <DialogHeader>
-                      <DialogTitle>Add New Product</DialogTitle>
+                      <DialogTitle>{t('dashboard.products.addProduct')}</DialogTitle>
                       <DialogDescription>
-                        Create a new product here. Click save when you're done.
+                        {t('dashboard.products.addProductDescription')}
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="product_name" className="text-right">
-                          Name
+                          {t('dashboard.products.name')}
                         </Label>
                         <Input
                           id="product_name"
@@ -859,14 +1439,14 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="category" className="text-right">
-                          Category
+                          {t('dashboard.products.category')}
                         </Label>
                         <Select 
                           value={newProduct.category} 
                           onValueChange={(value) => setNewProduct({ ...newProduct, category: value })}
                         >
                           <SelectTrigger className="col-span-3">
-                            <SelectValue placeholder="Select category" />
+                            <SelectValue placeholder={t('dashboard.products.selectCategory')} />
                           </SelectTrigger>
                           <SelectContent>
                             {categories.map((category) => (
@@ -877,7 +1457,7 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="product_image" className="text-right">
-                          Product Image
+                          {t('dashboard.products.productImage')}
                         </Label>
                         <div className="col-span-3">
                           <Input
@@ -901,7 +1481,7 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="product_stock" className="text-right">
-                          Stock
+                          {t('dashboard.products.stock')}
                         </Label>
                         <Input
                           id="product_stock"
@@ -913,7 +1493,7 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="product_barcode" className="text-right">
-                          Barcode
+                          {t('dashboard.products.barcode')}
                         </Label>
                         <Input
                           id="product_barcode"
@@ -924,7 +1504,7 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="product_price" className="text-right">
-                          Price
+                          {t('dashboard.products.price')}
                         </Label>
                         <Input
                           id="product_price"
@@ -936,7 +1516,7 @@ const handleDeleteItem = async () => {
                       </div>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="expiry_date" className="text-right">
-                          Expiry Date
+                          {t('dashboard.products.expiryDate')}
                         </Label>
                         <Popover>
                           <PopoverTrigger asChild>
@@ -948,7 +1528,7 @@ const handleDeleteItem = async () => {
                               )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
-                              {newProduct.expiry_date ? format(new Date(newProduct.expiry_date), "PPP") : <span>Pick a date</span>}
+                              {newProduct.expiry_date ? format(new Date(newProduct.expiry_date), "PPP") : <span>{t('dashboard.products.pickADate')}</span>}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
@@ -963,7 +1543,7 @@ const handleDeleteItem = async () => {
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button onClick={handleAddProduct}>Save Product</Button>
+                      <Button onClick={handleAddProduct}>{t('dashboard.products.saveProduct')}</Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
@@ -973,22 +1553,22 @@ const handleDeleteItem = async () => {
               {isFiltersVisible && (
                 <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
-                    <Label htmlFor="search">Search</Label>
+                    <Label htmlFor="search">{t('common.search')}</Label>
                     <Input
                       id="search"
-                      placeholder="Search products..."
+                      placeholder={t('dashboard.products.searchPlaceholder')}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="category-filter">Category</Label>
+                    <Label htmlFor="category-filter">{t('dashboard.products.categoryFilter')}</Label>
                     <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                       <SelectTrigger id="category-filter">
-                        <SelectValue placeholder="Select a category" />
+                        <SelectValue placeholder={t('dashboard.products.selectCategory')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="all">{t('dashboard.products.allCategories')}</SelectItem>
                         {categories.map((category) => (
                           <SelectItem key={category.id} value={category.category}>
                             {category.category}
@@ -998,50 +1578,70 @@ const handleDeleteItem = async () => {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="expiry-status-filter">Expiry Status</Label>
+                    <Label htmlFor="expiry-status-filter">{t('dashboard.products.expiryStatusFilter')}</Label>
                     <Select value={expiryStatusFilter} onValueChange={setExpiryStatusFilter}>
                       <SelectTrigger id="expiry-status-filter">
-                        <SelectValue placeholder="Select expiry status" />
+                        <SelectValue placeholder={t('dashboard.products.selectExpiryStatus')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        <SelectItem value="Expired">Expired</SelectItem>
-                        <SelectItem value="Expires today">Expires Today</SelectItem>
-                        <SelectItem value="days">Not Expired</SelectItem>
+                        <SelectItem value="all">{t('dashboard.products.allStatuses')}</SelectItem>
+                        <SelectItem value="Expired">{t('dashboard.products.expired')}</SelectItem>
+                        <SelectItem value="Expires today">{t('dashboard.products.expiresToday')}</SelectItem>
+                        <SelectItem value="days">{t('dashboard.products.notExpired')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="stock-filter">Stock Level</Label>
+                    <Label htmlFor="stock-filter">{t('dashboard.products.stockLevel')}</Label>
                     <Select value={stockFilter} onValueChange={setStockFilter}>
                       <SelectTrigger id="stock-filter">
-                        <SelectValue placeholder="Select stock level" />
+                        <SelectValue placeholder={t('dashboard.products.selectStockLevel')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Levels</SelectItem>
-                        <SelectItem value="low">Low Stock (&lt;10)</SelectItem>
-                        <SelectItem value="medium">Medium Stock (10-50)</SelectItem>
-                        <SelectItem value="high">High Stock (&gt;50)</SelectItem>
+                        <SelectItem value="all">{t('dashboard.products.allLevels')}</SelectItem>
+                        <SelectItem value="low">{t('dashboard.products.lowStock', { count: 10 })}</SelectItem>
+                        <SelectItem value="medium">{t('dashboard.products.mediumStock', { count: 50 })}</SelectItem>
+                        <SelectItem value="high">{t('dashboard.products.highStock', { count: 50 })}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+              )}
+              {categoryFilter !== 'all' && (
+                <div className="mb-4 flex items-center justify-between bg-muted/50 p-2 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    <span>
+                      {t('dashboard.products.filteringByCategory', { category: categoryFilter })}
+                    </span>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => {
+                      setCategoryFilter('all');
+                      setIsFiltersVisible(false);
+                    }}
+                  >
+                    {t('dashboard.products.clearFilter')}
+                  </Button>
                 </div>
               )}
               <Table>
                 <TableHeader>
                   <TableRow>
                   <TableHead className="w-[80px]"></TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Stock</TableHead>
-                    <TableHead>Expiry Date</TableHead>
-                    <TableHead>Expiry Status</TableHead>
+                    <TableHead>{t('dashboard.products.name')}</TableHead>
+                    <TableHead>{t('dashboard.products.category')}</TableHead>
+                    <TableHead>{t('dashboard.products.price')}</TableHead>
+                    <TableHead>{t('dashboard.products.stock')}</TableHead>
+                    <TableHead>{t('dashboard.products.expiryDate')}</TableHead>
+                    <TableHead>{t('dashboard.products.expiryStatus')}</TableHead>
                     <TableHead className="text-right"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                {filteredProducts.map((product) => {
+                {paginatedProducts.map((product) => {
                     const expiryStatus = getExpiryStatus(product.expiry_date)
                     return (
                       <TableRow key={product.id}>
@@ -1075,7 +1675,7 @@ const handleDeleteItem = async () => {
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => handleEditProduct(product)}>
                                 <Pencil className="mr-2 h-4 w-4" />
-                                Edit
+                                {t('common.edit')}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -1084,7 +1684,7 @@ const handleDeleteItem = async () => {
                                 }}
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
+                                {t('common.delete')}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1094,6 +1694,90 @@ const handleDeleteItem = async () => {
                   })}
                 </TableBody>
               </Table>
+              <div className="mt-4 flex items-center justify-between px-2">
+                <div className="text-sm text-muted-foreground">
+                  {t('dashboard.products.showingEntries', { start: ((productsCurrentPage - 1) * productsPerPage) + 1, end: Math.min(productsCurrentPage * productsPerPage, filteredProducts.length), total: filteredProducts.length })}
+                </div>
+                <Pagination className="flex-1 justify-center">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        href="#" 
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setProductsCurrentPage(prev => Math.max(1, prev - 1))
+                        }}
+                        className={cn(
+                          "hover:bg-accent hover:text-accent-foreground",
+                          productsCurrentPage === 1 ? "pointer-events-none opacity-50" : ""
+                        )}
+                      />
+                    </PaginationItem>
+                    
+                    {[...Array(totalProductPages)].map((_, i) => {
+                      const pageNumber = i + 1;
+                      
+                      // Logik für sichtbare Seitenzahlen
+                      const isVisible = 
+                        pageNumber === 1 || // Erste Seite
+                        pageNumber === totalProductPages || // Letzte Seite
+                        (pageNumber >= productsCurrentPage - 1 && pageNumber <= productsCurrentPage + 1); // Aktuelle Seite und Nachbarn
+                      
+                      // Logik für Ellipsis
+                      const showEllipsisBefore = pageNumber === productsCurrentPage - 2 && productsCurrentPage > 3;
+                      const showEllipsisAfter = pageNumber === productsCurrentPage + 2 && productsCurrentPage < totalProductPages - 2;
+                      
+                      if (showEllipsisBefore) {
+                        return <PaginationEllipsis key={`ellipsis-before-${pageNumber}`} />;
+                      }
+                      
+                      if (showEllipsisAfter) {
+                        return <PaginationEllipsis key={`ellipsis-after-${pageNumber}`} />;
+                      }
+                      
+                      if (isVisible) {
+                        return (
+                          <PaginationItem key={pageNumber}>
+                            <PaginationLink
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setProductsCurrentPage(pageNumber);
+                              }}
+                              isActive={pageNumber === productsCurrentPage}
+                              className={cn(
+                                "min-w-[2rem] h-8 rounded-md flex items-center justify-center",
+                                pageNumber === productsCurrentPage
+                                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                  : "hover:bg-accent hover:text-accent-foreground"
+                              )}
+                            >
+                              {pageNumber}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      }
+                      
+                      return null;
+                    })}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setProductsCurrentPage(prev => Math.min(totalProductPages, prev + 1))
+                        }}
+                        className={cn(
+                          "hover:bg-accent hover:text-accent-foreground",
+                          productsCurrentPage === totalProductPages ? "pointer-events-none opacity-50" : ""
+                        )}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+                <div className="min-w-[100px]"></div> {/* Spacer für bessere Zentrierung */}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1102,29 +1786,29 @@ const handleDeleteItem = async () => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
-                <CardTitle className="text-2xl font-bold">Categories</CardTitle>
+                <CardTitle className="text-2xl font-bold">{t('dashboard.categories.title')}</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Manage your product categories.
+                  {t('dashboard.categories.description')}
                 </p>
               </div>
               <Dialog>
                 <DialogTrigger asChild>
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
-                    Add Category
+                    {t('dashboard.categories.addCategory')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[425px]">
                   <DialogHeader>
-                    <DialogTitle>Add New Category</DialogTitle>
+                    <DialogTitle>{t('dashboard.categories.addCategory')}</DialogTitle>
                     <DialogDescription>
-                      Create a new category here. Click save when you're done.
+                      {t('dashboard.categories.addCategoryDescription')}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
                     <div className="grid grid-cols-4 items-center gap-4">
                       <Label htmlFor="category_name" className="text-right">
-                        Name
+                        {t('dashboard.categories.name')}
                       </Label>
                       <Input
                         id="category_name"
@@ -1135,363 +1819,239 @@ const handleDeleteItem = async () => {
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button type="submit" onClick={handleAddCategory}>Save Category</Button>
+                    <Button type="submit" onClick={handleAddCategory}>{t('dashboard.categories.saveCategory')}</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {categories.map((category) => (
-                    <TableRow key={category.id}>
-                      <TableCell className="font-medium">{category.category}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditCategory(category)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => {
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {categories.map((category) => (
+                  <Card key={category.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader className="flex flex-row items-center justify-between p-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Package className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-lg">{category.category}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {products.filter(p => p.category === category.category).length} {t('dashboard.categories.products')}
+                          </p>
+                        </div>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <span className="sr-only">Open menu</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleEditCategory(category)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            {t('common.edit')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => {
                               setItemToDelete({ id: category.id, type: 'category' })
                               setIsDeleteAlertOpen(true)
-                            }}>
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                            }}
+                            className="text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {t('common.delete')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-0">
+                      <div className="flex justify-between items-center text-sm">
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="secondary">
+                            {formatCurrency(
+                              products
+                                .filter(p => p.category === category.category)
+                                .reduce((sum, p) => sum + p.product_price, 0)
+                            )}
+                          </Badge>
+                          <Badge variant="outline">
+                            {products
+                              .filter(p => p.category === category.category)
+                              .reduce((sum, p) => sum + p.product_stock, 0)} {t('dashboard.categories.inStock')}
+                          </Badge>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => {
+                            setCategoryFilter(category.category);
+                            setIsFiltersVisible(true); // Zeigt die Filter an
+                            setActiveTab("products"); // Wechselt automatisch zum Products-Tab
+                          }}
+                        >
+                          {t('dashboard.categories.viewProducts')}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
-        {/* Analyse-Tab */}
-        <TabsContent value="analytics">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Revenue ({dateRangeLabel})
-                </CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-                <p className="text-xs text-muted-foreground">
-                  +20% from previous period
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Sales ({dateRangeLabel})
-                </CardTitle>
-                <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">+{totalSales}</div>
-                <p className="text-xs text-muted-foreground">
-                  +180.1% from previous period
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Customers ({dateRangeLabel})
-                </CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">+{totalCustomers}</div>
-                <p className="text-xs text-muted-foreground">
-                  +19% from previous period
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Average Order Value ({dateRangeLabel})
-                </CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</div>
-                <p className="text-xs text-muted-foreground">
-                  +201 from previous period
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
-              <CardHeader>
-                <CardTitle>Sales Trend</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={{
-                  sales: {
-                    label: "Sales",
-                    color: "hsl(var(--chart-1))",
-                  },
-                }} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={salesData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Line type="monotone" dataKey="total" stroke="var(--color-sales)" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-            <Card className="col-span-3">
-              <CardHeader>
-                <CardTitle>Top Selling Products</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={{
-                  sales: {
-                    label: "Sales",
-                    color: "hsl(var(--chart-1))",
-                  },
-                }} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={topProducts} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="product_name" type="category" />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="total_sold" fill="var(--color-sales)" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-            <Card className="col-span-4">
-              <CardHeader>
-                <CardTitle>Sales by Category ({dateRangeLabel})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={{
-                  category: {
-                    label: "Category",
-                    color: "hsl(var(--chart-1))",
-                  },
-                }} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    {salesByCategory.length > 0 ? (
-                      <PieChart>
-                        <Pie
-                          data={salesByCategory}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        >
-                          {salesByCategory.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                      </PieChart>
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <p className="text-muted-foreground">No data available for the selected period</p>
-                      </div>
-                    )}
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-            <Card className="col-span-3">
-              <CardHeader>
-                <CardTitle>Key Metrics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium">Total Revenue</h4>
-                    <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium">Average Order Value</h4>
-                    <p className="text-2xl font-bold">{formatCurrency(averageOrderValue)}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium">Total Orders</h4>
-                    <p className="text-2xl font-bold">{totalSales}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+      
         {/* inventory-Tab */}
         <TabsContent value="inventory">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <div>
-              <CardTitle className="text-2xl font-bold">Inventory</CardTitle>
+              <CardTitle className="text-2xl font-bold">{t('dashboard.inventory.title')}</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Manage your inventory and stock levels.
+                {t('dashboard.inventory.description')}
               </p>
             </div>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Inventory Item
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[625px]">
-                <DialogHeader>
-                  <DialogTitle>Add New Inventory Item</DialogTitle>
-                  <DialogDescription>
-                    Select a product and add inventory details. Click save when you're done.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="product_select" className="text-right">
-                      Select Product
-                    </Label>
-                    <Select
-                      value={selectedProduct?.id || ''}
-                      onValueChange={handleProductSelect}
-                    >
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Select a product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((product) => (
-                          <SelectItem key={product.id} value={product.id}>
-                            {product.product_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+            <div className="flex space-x-2 gap-2">
+              {/* Füge den Filter-Button hinzu */}
+              <Button
+                variant="outline"
+                onClick={() => setIsInventoryFiltersVisible(!isInventoryFiltersVisible)}
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                {t('common.filter')}
+              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t('dashboard.inventory.addInventoryItem')}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[625px]">
+                  <DialogHeader>
+                    <DialogTitle>{t('dashboard.inventory.addInventoryItem')}</DialogTitle>
+                    <DialogDescription>
+                      {t('dashboard.inventory.addInventoryItemDescription')}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="product_select" className="text-right">
+                        {t('dashboard.inventory.selectProduct')}
+                      </Label>
+                      <Select
+                        value={selectedProduct?.id || ''}
+                        onValueChange={handleProductSelect}
+                      >
+                        <SelectTrigger className="col-span-3">
+                          <SelectValue placeholder={t('dashboard.inventory.selectProduct')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((product) => (
+                            <SelectItem key={product.id} value={product.id}>
+                              {product.product_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="inventory_product_name" className="text-right">
+                        {t('dashboard.inventory.name')}
+                      </Label>
+                      <Input
+                        id="inventory_product_name"
+                        value={newInventoryItem.inventory_product_name}
+                        className="col-span-3"
+                        disabled
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="inventory_category_name" className="text-right">
+                        {t('dashboard.inventory.category')}
+                      </Label>
+                      <Input
+                        id="inventory_category_name"
+                        value={newInventoryItem.inventory_category_name}
+                        className="col-span-3"
+                        disabled
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="inventory_product_barcode" className="text-right">
+                        {t('dashboard.inventory.barcode')}
+                      </Label>
+                      <Input
+                        id="inventory_product_barcode"
+                        value={newInventoryItem.inventory_product_barcode}
+                        className="col-span-3"
+                        disabled
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="inventory_product_price" className="text-right">
+                        {t('dashboard.inventory.price')}
+                      </Label>
+                      <Input
+                        id="inventory_product_price"
+                        type="number"
+                        value={newInventoryItem.inventory_product_price}
+                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_price: parseFloat(e.target.value) })}
+                        className="col-span-3"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="quantity" className="text-right">
+                        {t('dashboard.inventory.quantity')}
+                      </Label>
+                      <Input
+                        id="quantity"
+                        type="number"
+                        value={newInventoryItem.quantity}
+                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, quantity: parseInt(e.target.value) })}
+                        className="col-span-3"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="inventory_expiry_date" className="text-right">
+                        {t('dashboard.inventory.expiryDate')}
+                      </Label>
+                      <Input
+                        id="inventory_expiry_date"
+                        type="date"
+                        value={newInventoryItem.inventory_expiry_date}
+                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_expiry_date: e.target.value })}
+                        className="col-span-3"
+                      />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="inventory_product_name" className="text-right">
-                      Name
-                    </Label>
-                    <Input
-                      id="inventory_product_name"
-                      value={newInventoryItem.inventory_product_name}
-                      className="col-span-3"
-                      disabled
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="inventory_category_name" className="text-right">
-                      Category
-                    </Label>
-                    <Input
-                      id="inventory_category_name"
-                      value={newInventoryItem.inventory_category_name}
-                      className="col-span-3"
-                      disabled
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="inventory_product_barcode" className="text-right">
-                      Barcode
-                    </Label>
-                    <Input
-                      id="inventory_product_barcode"
-                      value={newInventoryItem.inventory_product_barcode}
-                      className="col-span-3"
-                      disabled
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="inventory_product_price" className="text-right">
-                      Price
-                    </Label>
-                    <Input
-                      id="inventory_product_price"
-                      type="number"
-                      value={newInventoryItem.inventory_product_price}
-                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_product_price: parseFloat(e.target.value) })}
-                      className="col-span-3"
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="quantity" className="text-right">
-                      Quantity
-                    </Label>
-                    <Input
-                      id="quantity"
-                      type="number"
-                      value={newInventoryItem.quantity}
-                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, quantity: parseInt(e.target.value) })}
-                      className="col-span-3"
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="inventory_expiry_date" className="text-right">
-                      Expiry Date
-                    </Label>
-                    <Input
-                      id="inventory_expiry_date"
-                      type="date"
-                      value={newInventoryItem.inventory_expiry_date}
-                      onChange={(e) => setNewInventoryItem({ ...newInventoryItem, inventory_expiry_date: e.target.value })}
-                      className="col-span-3"
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" onClick={handleAddInventoryItem}>Save Inventory Item</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                  <DialogFooter>
+                    <Button type="submit" onClick={handleAddInventoryItem}>{t('dashboard.inventory.saveInventoryItem')}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           </CardHeader>
             <CardContent>
               {isInventoryFiltersVisible && (
-                <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-4">
                   <div>
-                    <Label htmlFor="inventory-search">Search</Label>
+                    <Label htmlFor="inventory-search">{t('common.search')}</Label>
                     <Input
                       id="inventory-search"
-                      placeholder="Search inventory..."
-                      value={inventorySearchTerm}
-                      onChange={(e) => setInventorySearchTerm(e.target.value)}
+                      placeholder={t('dashboard.inventory.searchPlaceholder')}
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="inventory-category-filter">Category</Label>
+                    <Label htmlFor="inventory-category-filter">{t('dashboard.inventory.categoryFilter')}</Label>
                     <Select value={inventoryCategoryFilter} onValueChange={setInventoryCategoryFilter}>
                       <SelectTrigger id="inventory-category-filter">
-                        <SelectValue placeholder="Select a category" />
+                        <SelectValue placeholder={t('dashboard.inventory.selectCategory')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="all">{t('dashboard.inventory.allCategories')}</SelectItem>
                         {categories.map((category) => (
                           <SelectItem key={category.id} value={category.category}>
                             {category.category}
@@ -1501,89 +2061,186 @@ const handleDeleteItem = async () => {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="inventory-stock-filter">Stock Level</Label>
-                    <Select value={inventoryStockFilter} onValueChange={setInventoryStockFilter}>
-                      <SelectTrigger id="inventory-stock-filter">
-                        <SelectValue placeholder="Select stock level" />
+                    <Label htmlFor="inventory-expiry-filter">{t('dashboard.inventory.expiryStatusFilter')}</Label>
+                    <Select value={inventoryExpiryFilter} onValueChange={setInventoryExpiryFilter}>
+                      <SelectTrigger id="inventory-expiry-filter">
+                        <SelectValue placeholder={t('dashboard.inventory.selectExpiryStatus')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Levels</SelectItem>
-                        <SelectItem value="low">Low Stock (&lt;10)</SelectItem>
-                        <SelectItem value="medium">Medium Stock (10-50)</SelectItem>
-                        <SelectItem value="high">High Stock (&gt;50)</SelectItem>
+                        <SelectItem value="all">{t('dashboard.inventory.allStatuses')}</SelectItem>
+                        <SelectItem value="expired">{t('dashboard.inventory.expired')}</SelectItem>
+                        <SelectItem value="expires-today">{t('dashboard.inventory.expiresToday')}</SelectItem>
+                        <SelectItem value="expires-soon">{t('dashboard.inventory.expiresSoon', { days: 30 })}</SelectItem>
+                        <SelectItem value="good">{t('dashboard.inventory.good')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="inventory-stock-filter">{t('dashboard.inventory.stockLevel')}</Label>
+                    <Select value={inventoryStockFilter} onValueChange={setInventoryStockFilter}>
+                      <SelectTrigger id="inventory-stock-filter">
+                        <SelectValue placeholder={t('dashboard.inventory.selectStockLevel')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{t('dashboard.inventory.allLevels')}</SelectItem>
+                        <SelectItem value="low">{t('dashboard.inventory.lowStock', { count: 10 })}</SelectItem>
+                        <SelectItem value="medium">{t('dashboard.inventory.mediumStock', { count: 50 })}</SelectItem>
+                        <SelectItem value="high">{t('dashboard.inventory.highStock', { count: 50 })}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
               )}
-            <Table>
-  <TableHeader>
-    <TableRow>
-      <TableHead>Image</TableHead>
-      <TableHead>Name</TableHead>
-      <TableHead>Category</TableHead>
-      <TableHead>Quantity</TableHead>
-      <TableHead>Price</TableHead>
-      <TableHead>Expiry Date</TableHead>
-      <TableHead>Actions</TableHead>
-    </TableRow>
-  </TableHeader>
-  <TableBody>
-    {filteredInventory.map((item) => (
-      <TableRow key={item.product_id}>
-        <TableCell>
-          {item.inventory_product_img_path ? (
-            <Image
-              src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
-              alt={item.inventory_product_name}
-              width={50}
-              height={50}
-              className="rounded-md"
-            />
-          ) : (
-            <div className="w-[50px] h-[50px] bg-gray-200 rounded-md flex items-center justify-center">
-              No Image
-            </div>
-          )}
-        </TableCell>
-        <TableCell className="font-medium">{item.inventory_product_name}</TableCell>
-        <TableCell>{item.inventory_category_name}</TableCell>
-        <TableCell>{item.quantity}</TableCell>
-        <TableCell>{formatCurrency(item.inventory_product_price)}</TableCell>
-        <TableCell>
-          <div className="flex items-center">
-            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getExpiryStatus(item.inventory_expiry_date).color}`}>
-              {getExpiryStatus(item.inventory_expiry_date).text}
-            </span>
-          </div>
-        </TableCell>
-        <TableCell>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleEditInventoryItem(item)}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                setItemToDelete({ id: item.product_id, type: 'inventory' })
-                setIsDeleteAlertOpen(true)
-              }}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TableCell>
-      </TableRow>
-    ))}
-  </TableBody>
-</Table>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('dashboard.inventory.image')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.name')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.category')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.quantity')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.price')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.expiryDate')}</TableHead>
+                    <TableHead>{t('dashboard.inventory.actions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedInventory.map((item) => (
+                    <TableRow key={item.product_id}>
+                      <TableCell>
+                        {item.inventory_product_img_path ? (
+                          <Image
+                            src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
+                            alt={item.inventory_product_name}
+                            width={50}
+                            height={50}
+                            className="rounded-md"
+                          />
+                        ) : (
+                          <div className="w-[50px] h-[50px] bg-gray-200 rounded-md flex items-center justify-center">
+                            {t('dashboard.inventory.noImage')}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">{item.inventory_product_name}</TableCell>
+                      <TableCell>{item.inventory_category_name}</TableCell>
+                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell>{formatCurrency(item.inventory_product_price)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center">
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getExpiryStatus(item.inventory_expiry_date).color}`}>
+                            {getExpiryStatus(item.inventory_expiry_date).text}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <span className="sr-only">Open menu</span>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEditInventoryItem(item)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              {t('common.edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              setItemToDelete({ id: item.product_id, type: 'inventory' })
+                              setIsDeleteAlertOpen(true)
+                            }}>
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              {t('common.delete')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="mt-4 flex items-center justify-between px-2">
+                <div className="text-sm text-muted-foreground">
+                  {t('dashboard.inventory.showingEntries', { start: ((inventoryCurrentPage - 1) * inventoryPerPage) + 1, end: Math.min(inventoryCurrentPage * inventoryPerPage, filteredInventory.length), total: filteredInventory.length })}
+                </div>
+                <Pagination className="flex-1 justify-center">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        href="#" 
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setInventoryCurrentPage(prev => Math.max(1, prev - 1))
+                        }}
+                        className={cn(
+                          "hover:bg-accent hover:text-accent-foreground",
+                          inventoryCurrentPage === 1 ? "pointer-events-none opacity-50" : ""
+                        )}
+                      />
+                    </PaginationItem>
+                    
+                    {[...Array(totalInventoryPages)].map((_, i) => {
+                      const pageNumber = i + 1;
+                      
+                      const isVisible = 
+                        pageNumber === 1 || // Erste Seite
+                        pageNumber === totalInventoryPages || // Letzte Seite
+                        (pageNumber >= inventoryCurrentPage - 1 && pageNumber <= inventoryCurrentPage + 1); // Aktuelle Seite und Nachbarn
+                      
+                      const showEllipsisBefore = pageNumber === inventoryCurrentPage - 2 && inventoryCurrentPage > 3;
+                      const showEllipsisAfter = pageNumber === inventoryCurrentPage + 2 && inventoryCurrentPage < totalInventoryPages - 2;
+                      
+                      if (showEllipsisBefore) {
+                        return <PaginationEllipsis key={`ellipsis-before-${pageNumber}`} />;
+                      }
+                      
+                      if (showEllipsisAfter) {
+                        return <PaginationEllipsis key={`ellipsis-after-${pageNumber}`} />;
+                      }
+                      
+                      if (isVisible) {
+                        return (
+                          <PaginationItem key={pageNumber}>
+                            <PaginationLink
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setInventoryCurrentPage(pageNumber);
+                              }}
+                              isActive={pageNumber === inventoryCurrentPage}
+                              className={cn(
+                                "min-w-[2rem] h-8 rounded-md flex items-center justify-center",
+                                pageNumber === inventoryCurrentPage
+                                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                  : "hover:bg-accent hover:text-accent-foreground"
+                              )}
+                            >
+                              {pageNumber}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      }
+                      
+                      return null;
+                    })}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setInventoryCurrentPage(prev => Math.min(totalInventoryPages, prev + 1))
+                        }}
+                        className={cn(
+                          "hover:bg-accent hover:text-accent-foreground",
+                          inventoryCurrentPage === totalInventoryPages ? "pointer-events-none opacity-50" : ""
+                        )}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+                <div className="min-w-[100px]"></div> {/* Spacer für bessere Zentrierung */}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1591,16 +2248,16 @@ const handleDeleteItem = async () => {
       <Dialog open={isEditProductDialogOpen} onOpenChange={setIsEditProductDialogOpen}>
         <DialogContent className="sm:max-w-[625px]">
           <DialogHeader>
-            <DialogTitle>Edit Product</DialogTitle>
+            <DialogTitle>{t('dashboard.products.editProduct')}</DialogTitle>
             <DialogDescription>
-              Update the product details here. Click save when you're done.
+              {t('dashboard.products.updateProductDetails')}
             </DialogDescription>
           </DialogHeader>
           {editingProduct && (
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_product_name" className="text-right">
-                  Name
+                  {t('dashboard.products.name')}
                 </Label>
                 <Input
                   id="edit_product_name"
@@ -1611,14 +2268,14 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_category" className="text-right">
-                  Category
+                  {t('dashboard.products.category')}
                 </Label>
                 <Select 
                   value={editingProduct.category} 
                   onValueChange={(value) => setEditingProduct({ ...editingProduct, category: value })}
                 >
                   <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select category" />
+                    <SelectValue placeholder={t('dashboard.products.selectCategory')} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((category) => (
@@ -1629,7 +2286,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_product_image" className="text-right">
-                  Product Image
+                  {t('dashboard.products.productImage')}
                 </Label>
                 <div className="col-span-3">
                   <Input
@@ -1663,7 +2320,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_product_stock" className="text-right">
-                  Stock
+                  {t('dashboard.products.stock')}
                 </Label>
                 <Input
                   id="edit_product_stock"
@@ -1675,7 +2332,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_product_barcode" className="text-right">
-                  Barcode
+                  {t('dashboard.products.barcode')}
                 </Label>
                 <Input
                   id="edit_product_barcode"
@@ -1686,7 +2343,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_product_price" className="text-right">
-                  Price
+                  {t('dashboard.products.price')}
                 </Label>
                 <Input
                   id="edit_product_price"
@@ -1698,7 +2355,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_expiry_date" className="text-right">
-                  Expiry Date
+                  {t('dashboard.products.expiryDate')}
                 </Label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1707,7 +2364,7 @@ const handleDeleteItem = async () => {
                       className={`col-span-3 justify-start text-left font-normal ${!editingProduct.expiry_date && "text-muted-foreground"}`}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {editingProduct.expiry_date ? format(new Date(editingProduct.expiry_date), "PPP") : <span>Pick a date</span>}
+                      {editingProduct.expiry_date ? format(new Date(editingProduct.expiry_date), "PPP") : <span>{t('dashboard.products.pickADate')}</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -1723,23 +2380,23 @@ const handleDeleteItem = async () => {
             </div>
           )}
           <DialogFooter>
-            <Button onClick={handleUpdateProduct}>Update Product</Button>
+            <Button onClick={handleUpdateProduct}>{t('dashboard.products.updateProduct')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={isEditInventoryItemDialogOpen} onOpenChange={setIsEditInventoryItemDialogOpen}>
         <DialogContent className="sm:max-w-[625px]">
           <DialogHeader>
-            <DialogTitle>Edit Inventory Item</DialogTitle>
+            <DialogTitle>{t('dashboard.inventory.editInventoryItem')}</DialogTitle>
             <DialogDescription>
-              Make changes to the inventory item here. Click save when you're done.
+              {t('dashboard.inventory.makeChanges')}
             </DialogDescription>
           </DialogHeader>
           {editingInventoryItem && (
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_product_name" className="text-right">
-                  Name
+                  {t('dashboard.inventory.name')}
                 </Label>
                 <Input
                   id="edit_inventory_product_name"
@@ -1750,14 +2407,14 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_category_name" className="text-right">
-                  Category
+                  {t('dashboard.inventory.category')}
                 </Label>
                 <Select 
                   value={editingInventoryItem.inventory_category_name} 
                   onValueChange={(value) => setEditingInventoryItem({ ...editingInventoryItem, inventory_category_name: value })}
                 >
                   <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select a category" />
+                    <SelectValue placeholder={t('dashboard.inventory.selectCategory')} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((category) => (
@@ -1770,7 +2427,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_product_image" className="text-right">
-                  Image
+                  {t('dashboard.inventory.image')}
                 </Label>
                 <Input
                   id="edit_inventory_product_image"
@@ -1781,7 +2438,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_product_price" className="text-right">
-                  Price
+                  {t('dashboard.inventory.price')}
                 </Label>
                 <Input
                   id="edit_inventory_product_price"
@@ -1793,7 +2450,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_product_barcode" className="text-right">
-                  Barcode
+                  {t('dashboard.inventory.barcode')}
                 </Label>
                 <Input
                   id="edit_inventory_product_barcode"
@@ -1804,7 +2461,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_quantity" className="text-right">
-                  Quantity
+                  {t('dashboard.inventory.quantity')}
                 </Label>
                 <Input
                   id="edit_quantity"
@@ -1816,7 +2473,7 @@ const handleDeleteItem = async () => {
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_inventory_expiry_date" className="text-right">
-                  Expiry Date
+                  {t('dashboard.inventory.expiryDate')}
                 </Label>
                 <Input
                   id="edit_inventory_expiry_date"
@@ -1829,23 +2486,23 @@ const handleDeleteItem = async () => {
             </div>
           )}
           <DialogFooter>
-            <Button type="submit" onClick={handleUpdateInventoryItem}>Save changes</Button>
+            <Button type="submit" onClick={handleUpdateInventoryItem}>{t('dashboard.inventory.saveChanges')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={isEditCategoryDialogOpen} onOpenChange={setIsEditCategoryDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Category</DialogTitle>
+            <DialogTitle>{t('dashboard.categories.editCategory')}</DialogTitle>
             <DialogDescription>
-              Make changes to the category here. Click save when you're done.
+              {t('dashboard.categories.makeChanges')}
             </DialogDescription>
           </DialogHeader>
           {editingCategory && (
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="edit_category_name" className="text-right">
-                  Name
+                  {t('dashboard.categories.name')}
                 </Label>
                 <Input
                   id="edit_category_name"
@@ -1857,27 +2514,31 @@ const handleDeleteItem = async () => {
             </div>
           )}
           <DialogFooter>
-            <Button type="submit" onClick={handleUpdateCategory}>Save changes</Button>
+            <Button type="submit" onClick={handleUpdateCategory}>{t('dashboard.categories.saveChanges')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>{t('common.areYouSure')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the {itemToDelete?.type}
-              and remove it from our servers.
+              {t('common.thisActionCannotBeUndone')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsDeleteAlertOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setIsDeleteAlertOpen(false)}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteItem} className="bg-red-600 hover:bg-red-700 focus:ring-red-600">
-              Delete
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+    
+    </div>
+      {/* Füge den Footer am Ende hinzu */}
+      <Footer activeView="dashboard" />
     </div>
   )
 }

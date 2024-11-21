@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { openDB, DBSchema, IDBPDatabase } from 'idb'
 import { toast } from 'sonner'
+import { useTranslation } from '@/hooks/useTranslation';
 
 export interface OfflineTransaction {
   id: string
@@ -36,32 +37,42 @@ interface MyDB extends DBSchema {
 
 let db: IDBPDatabase<MyDB> | null = null
 
+// Wir erstellen einen Übersetzungskontext außerhalb der Komponente
+let translationFunction: typeof useTranslation extends () => { t: infer T } ? T : never = (key) => key;
+
 export function OfflineMode() {
+  const { t } = useTranslation();
+  
+  // Aktualisiere die globale Übersetzungsfunktion
+  useEffect(() => {
+    translationFunction = t;
+  }, [t]);
+
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [isSyncing, setIsSyncing] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
   const supabase = createClient()
 
   const showOfflineToast = useCallback(() => {
-    toast.error('Offline Mode', {
-      description: 'Transaktionen werden lokal gespeichert und bei Wiederherstellung der Verbindung synchronisiert.',
+    toast.error(t('notifications.offline.title'), {
+      description: t('notifications.offline.description'),
       duration: 5000,
     })
-  }, [])
+  }, [t])
 
   const showOnlineToast = useCallback(() => {
-    toast.success('Online Mode', {
-      description: 'Alle Transaktionen werden direkt verarbeitet.',
+    toast.success(t('notifications.online.title'), {
+      description: t('notifications.online.description'),
       duration: 5000,
     })
-  }, [])
+  }, [t])
 
   const showSyncingToast = useCallback(() => {
-    toast.info('Synchronizing', {
-      description: 'Synchronisiere offline Transaktionen...',
+    toast.info(t('notifications.syncing.title'), {
+      description: t('notifications.syncing.description'),
       duration: 5000,
     })
-  }, [])
+  }, [t])
 
   const initIndexedDB = useCallback(async () => {
     try {
@@ -84,12 +95,12 @@ export function OfflineMode() {
     } catch (error) {
       console.error('Error initializing IndexedDB:', error)
       setDbError('Failed to initialize offline database. Please refresh the page.')
-      toast.error('Database Error', {
-        description: 'Failed to initialize offline database. Please refresh the page.',
+      toast.error(t('notifications.dbError.title'), {
+        description: t('notifications.dbError.description'),
         duration: 5000,
       })
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -204,8 +215,8 @@ export function OfflineMode() {
       }
 
       console.log('Offline transaction synchronization completed')
-      toast.success('Sync Completed', {
-        description: 'All offline transactions have been synchronized.',
+      toast.success(t('notifications.syncing.completed'), {
+        description: t('notifications.syncing.completedDescription'),
         duration: 5000,
       })
     } catch (error) {
@@ -231,14 +242,14 @@ export const addOfflineTransaction = async (transaction: OfflineTransaction) => 
   try {
     await db.add('offlineTransactions', transaction);
     console.log("Offline transaction added successfully:", transaction.id);
-    toast.success('Transaction Saved', {
-      description: 'Transaction has been saved offline.',
+    toast.success(translationFunction('pos.batchPayment.offlineTransactionSaved'), {
+      description: translationFunction('notifications.offline.description'),
       duration: 3000,
     })
   } catch (error) {
     console.error("Error adding offline transaction:", error);
-    toast.error('Save Error', {
-      description: 'Failed to save transaction offline.',
+    toast.error(translationFunction('pos.batchPayment.offlineSaveError'), {
+      description: translationFunction('notifications.dbError.description'),
       duration: 5000,
     })
   }

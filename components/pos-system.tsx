@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Search, Trash2, ShoppingCart, BarChart2, ArrowLeft, Plus, Minus, AlertCircle } from 'lucide-react'
+import { Search, Trash2, ShoppingCart, BarChart2, ArrowLeft, Plus, Minus, AlertCircle, Printer } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,9 @@ import { Toaster, toast } from 'sonner'
 import Image from 'next/image'
 import { v4 as uuidv4 } from 'uuid'
 import { OfflineMode, addOfflineTransaction, OfflineTransaction, updateProductStock, getProductFromIndexedDB } from '@/utils/offline-mode'
+import { Footer } from "@/components/footer"
+import { useTranslation } from '@/hooks/useTranslation';
+import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer'
 
 interface MenuItem {
   id: string
@@ -51,12 +54,12 @@ interface InventoryItem {
 }
 
 const banknotes: Banknote[] = [
-  { value: 250, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-txP3Fkrgyzh5n9R7tbvzMpeTYCXehw.png' },
-  { value: 1000, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-10aQeIuJSRVn7DTn7vLRV41OpgEtjo.png' },
-  { value: 5000, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-aKXZp9gchIea22T6EH91v8ZE5jdWQ8.png' },
-  { value: 10000, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-P37JZaBcgOMqjv2WVVx33aQDdDU3Zl.png' },
-  { value: 25000, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-UZiW3D8y7NCaZ3Iq0SR9NXbFUH5WLs.png' },
-  { value: 50000, image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-dsTLl5h5KCYZvMc1KeUx5UgaZv25Wg.png' },
+  { value: 250, image: '/banknotes/250.png' },
+  { value: 1000, image: '/banknotes/1000.png' },
+  { value: 5000, image: '/banknotes/5000.png' },
+  { value: 10000, image: '/banknotes/10000.png' },
+  { value: 25000, image: '/banknotes/25000.png' },
+  { value: 50000, image: '/banknotes/50000.png' },
 ]
 
 const formatCurrency = (amount: number) => {
@@ -68,6 +71,261 @@ const isProductAvailable = (item: MenuItem) => {
   const expirationDate = new Date(item.expiry_date)
   return item.product_stock > 0 && expirationDate > today
 }
+
+Font.register({
+  family: 'NotoSans',
+  src: 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-arabic/files/noto-sans-arabic-arabic-400-normal.woff'
+});
+
+const receiptStyles = StyleSheet.create({
+  page: {
+    flexDirection: 'column',
+    backgroundColor: '#FFFFFF',
+    padding: 15,
+    fontFamily: 'NotoSans',
+  },
+  header: {
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'NotoSans',
+  },
+  subHeader: {
+    fontSize: 10,
+    marginBottom: 15,
+    textAlign: 'center',
+    color: '#666',
+    fontFamily: 'NotoSans',
+  },
+  divider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    borderBottomStyle: 'dashed',
+    marginVertical: 8,
+  },
+  table: {
+    width: '100%',
+    marginVertical: 8,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    marginBottom: 4,
+    backgroundColor: '#f8f9fa',
+  },
+  tableHeaderCell: {
+    fontSize: 8,
+    fontFamily: 'NotoSans',
+    flex: 1,
+    textAlign: 'right',
+  },
+  tableCol: {
+    flex: 1,
+    textAlign: 'right',
+    paddingHorizontal: 2,
+  },
+  tableCell: {
+    fontSize: 8,
+    padding: 2,
+    fontFamily: 'NotoSans',
+  },
+  total: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#000',
+    paddingHorizontal: 2,
+  },
+  totalLabel: {
+    fontSize: 10,
+    fontFamily: 'NotoSans',
+    textAlign: 'right',
+  },
+  totalValue: {
+    fontSize: 10,
+    fontFamily: 'NotoSans',
+    textAlign: 'right',
+  },
+  footer: {
+    marginTop: 20,
+    fontSize: 8,
+    textAlign: 'center',
+    color: '#666',
+    fontFamily: 'NotoSans',
+  },
+  datetime: {
+    fontSize: 8,
+    textAlign: 'center',
+    marginTop: 10,
+    color: '#666',
+    fontFamily: 'NotoSans',
+  },
+  storeName: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 4,
+    fontFamily: 'NotoSans',
+  },
+  storeInfo: {
+    fontSize: 8,
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 10,
+    fontFamily: 'NotoSans',
+  }
+});
+
+const ReceiptPDF = ({ order, total, amountReceived, change }: { 
+  order: OrderItem[], 
+  total: number, 
+  amountReceived: number, 
+  change: number 
+}) => {
+  const currentDate = new Date().toLocaleDateString('ckb-IR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  
+  const currentTime = new Date().toLocaleTimeString('ckb-IR');
+
+  return (
+    <Document>
+      <Page size="A6" style={receiptStyles.page}>
+        <Text style={receiptStyles.storeName}>فرۆشگای من</Text>
+        <Text style={receiptStyles.storeInfo}>
+          ناونیشان: شەقامی سەرەکی، هەولێر{'\n'}
+          تەلەفۆن: ٠٧٥٠ ١٢٣ ٤٥٦٧
+        </Text>
+        
+        <Text style={receiptStyles.header}>پسوڵەی کڕین</Text>
+        
+        <View style={receiptStyles.divider} />
+        
+        {/* Table Header */}
+        <View style={receiptStyles.tableHeader}>
+          <Text style={receiptStyles.tableHeaderCell}>دانە</Text>
+          <Text style={receiptStyles.tableHeaderCell}>نرخ</Text>
+          <Text style={receiptStyles.tableHeaderCell}>کۆی گشتی</Text>
+          <Text style={[receiptStyles.tableHeaderCell]}>بەرهەم</Text>
+
+        </View>
+
+        {/* Table Content */}
+        <View style={receiptStyles.table}>
+          {order.map((item, index) => (
+            <View style={receiptStyles.tableRow} key={index}>
+             
+              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
+                {item.quantity}
+              </Text>
+              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
+                {formatCurrency(item.product_price)}
+              </Text>
+              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
+                {formatCurrency(item.product_price * item.quantity)}
+              </Text>
+              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
+                {item.product_name}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={receiptStyles.divider} />
+
+        {/* Totals */}
+        <View style={receiptStyles.total}>
+          <Text style={receiptStyles.totalLabel}>کۆی گشتی:</Text>
+          <Text style={receiptStyles.totalValue}>{formatCurrency(total)}</Text>
+        </View>
+        
+        <View style={receiptStyles.total}>
+          <Text style={receiptStyles.totalLabel}>پارەی دراو:</Text>
+          <Text style={receiptStyles.totalValue}>{formatCurrency(amountReceived)}</Text>
+        </View>
+        
+        <View style={receiptStyles.total}>
+          <Text style={receiptStyles.totalLabel}>گەڕاوە:</Text>
+          <Text style={receiptStyles.totalValue}>{formatCurrency(change)}</Text>
+        </View>
+
+        <View style={receiptStyles.divider} />
+
+        <Text style={receiptStyles.datetime}>
+          {currentDate} - {currentTime}
+        </Text>
+
+        <Text style={receiptStyles.footer}>
+          سوپاس بۆ کڕینەکەت{'\n'}
+          بەخێربێیتەوە
+        </Text>
+      </Page>
+    </Document>
+  );
+};
+
+// Füge diese Interface-Definition hinzu
+interface BlobProviderParams {
+  blob: Blob | null;
+  url: string | null;
+  loading: boolean;
+  error: Error | null;
+}
+
+const getProductAvailabilityStatus = (item: MenuItem) => {
+  const today = new Date();
+  const expiryDate = new Date(item.expiry_date);
+  
+  if (expiryDate < today) {
+    return 'expired';
+  }
+  if (item.product_stock <= 0) {
+    return 'outOfStock';
+  }
+  return 'available';
+};
+
+const formatExpiryDate = (dateString: string, t: (key: string, options?: any) => string) => {
+  const date = new Date(dateString);
+  const today = new Date();
+  const expiryDate = new Date(date.toDateString());
+  const todayDate = new Date(today.toDateString());
+  
+  const diffTime = expiryDate.getTime() - todayDate.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  const formattedDate = `AP ${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  let statusText = '';
+  let statusClass = '';
+  
+  if (diffDays < 0) {
+    statusText = t('pos.productDialog.expiredAgo', { days: Math.abs(diffDays) });
+    statusClass = 'text-red-600';
+  } else if (diffDays === 0) {
+    statusText = t('pos.productDialog.expirestoday');
+    statusClass = 'text-orange-600';
+  } else if (diffDays <= 7) {
+    statusText = t('pos.productDialog.expiresSoon', { days: diffDays });
+    statusClass = 'text-yellow-600';
+  } else {
+    statusText = t('pos.productDialog.expiresIn', { days: diffDays });
+    statusClass = 'text-green-600';
+  }
+
+  return { formattedDate, statusText, statusClass };
+};
 
 export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) {
   const router = useRouter()
@@ -85,8 +343,10 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [selectedProduct, setSelectedProduct] = useState<MenuItem | null>(null)
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false)
+  const [lastCompletedOrder, setLastCompletedOrder] = useState<OrderItem[]>([])
 
   const supabase = createClient()
+  const { t } = useTranslation();
 
   useEffect(() => {
     const channel = supabase
@@ -140,28 +400,41 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
   }
 
   const addToOrder = async (item: MenuItem) => {
+    const today = new Date();
+    const expiryDate = new Date(item.expiry_date);
+    
+    if (expiryDate < today) {
+        toast.error(t('pos.productDialog.expired'));
+        return;
+    }
+
     if (!isProductAvailable(item)) {
-      console.log("Product is not available for sale")
-      return
+        toast.error(t('pos.productDialog.outOfStock'));
+        return;
     }
 
-    const quantity = parseInt(selectedQuantity) || 1
+    const quantity = parseInt(selectedQuantity) || 1;
     if (order.length === 0) {
-      setAmountReceived(0);
-      setChange(0);
+        setAmountReceived(0);
+        setChange(0);
     }
 
-    const newOrder = [...order]
-    const existingItem = newOrder.find(orderItem => orderItem.id === item.id)
+    const newOrder = [...order];
+    const existingItem = newOrder.find(orderItem => orderItem.id === item.id);
     if (existingItem) {
-      existingItem.quantity += quantity
+        existingItem.quantity += quantity;
     } else {
-      newOrder.push({ id: item.id, product_name: item.product_name, product_price: item.product_price, quantity: quantity })
+        newOrder.push({ 
+            id: item.id, 
+            product_name: item.product_name, 
+            product_price: item.product_price, 
+            quantity: quantity 
+        });
     }
 
-    setOrder(newOrder)
-    setSelectedQuantity('')
-  }
+    setOrder(newOrder);
+    setSelectedQuantity('');
+  };
 
   const removeFromOrder = (itemId: string) => {
     setOrder(prevOrder => prevOrder.filter(item => item.id !== itemId))
@@ -202,7 +475,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
 
   const handleCompleteBatchPayment = async () => {
     if (amountReceived < total) {
-      console.error("Insufficient amount received");
+      toast.error(t('pos.batchPayment.insufficientAmount'));
       return;
     }
 
@@ -210,12 +483,15 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
       id: uuidv4(),
       items: await Promise.all(order.map(async (item) => {
         const product = await getProductFromIndexedDB(item.id);
+        const currentStock = product ? product.product_stock : 0;
+        const newStock = Math.max(0, currentStock - item.quantity);
+        
         return {
           id: item.id,
           product_name: item.product_name,
           quantity: item.quantity,
           price: item.product_price,
-          currentStock: product ? product.product_stock - item.quantity : 0
+          currentStock: newStock
         };
       })),
       total: total,
@@ -224,8 +500,13 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
       timestamp: Date.now()
     };
 
-    if (navigator.onLine) {
-      try {
+    try {
+      if (!navigator.onLine) {
+        // Wenn offline, speichere die Transaktion in IndexedDB
+        await addOfflineTransaction(offlineTransaction);
+        toast.success(t('pos.batchPayment.offlineTransactionSaved'));
+      } else {
+        // Online-Transaktion verarbeiten
         const { data: saleData, error: saleError } = await supabase
           .from('sales')
           .insert({
@@ -235,16 +516,26 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
             change: Math.round(change),
             user_id: (await supabase.auth.getUser()).data.user?.id
           })
-          .select()
+          .select();
 
         if (saleError) {
-          console.error("Error creating sale:", saleError)
-          await addOfflineTransaction(offlineTransaction)
-          console.log("Transaction saved offline due to error")
-        } else {
-          const saleId = saleData[0].id
+          throw saleError;
+        }
 
-          for (const item of offlineTransaction.items) {
+        const saleId = saleData[0].id;
+
+        // Verarbeite jedes Produkt in der Bestellung
+        for (const item of offlineTransaction.items) {
+          try {
+            // Aktualisiere den Lagerbestand
+            const { error: stockError } = await supabase
+              .from('products')
+              .update({ product_stock: item.currentStock })
+              .eq('id', item.id);
+
+            if (stockError) throw stockError;
+
+            // Füge Verkaufsposition hinzu
             const { error: itemError } = await supabase
               .from('sales_items')
               .insert({
@@ -253,46 +544,49 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
                 product_name: item.product_name,
                 quantity: item.quantity,
                 price: item.price
-              })
+              });
 
-            if (itemError) {
-              console.error("Error adding sale item:", itemError)
-            }
-
-            const { error: stockError } = await supabase
-              .from('products')
-              .update({ product_stock: item.currentStock })
-              .eq('id', item.id)
-
-            if (stockError) {
-              console.error("Error updating stock:", stockError)
-            }
+            if (itemError) throw itemError;
+          } catch (error) {
+            console.error("Error processing item:", error);
+            // Speichere die Transaktion offline, wenn ein Fehler auftritt
+            await addOfflineTransaction(offlineTransaction);
+            toast.error(t('pos.batchPayment.errorSavingOffline'));
+            return;
           }
-
-          console.log("Online transaction completed successfully")
         }
-      } catch (error) {
-        console.error("Error processing online transaction:", error)
-        await addOfflineTransaction(offlineTransaction)
-        console.log("Transaction saved offline due to error")
+
+        toast.success(t('pos.batchPayment.transactionComplete'));
       }
-    } else {
-      await addOfflineTransaction(offlineTransaction)
-      console.log("Offline transaction saved successfully")
-    }
 
-    // Update local stock after successful transaction
-    for (const item of offlineTransaction.items) {
-      await updateProductStock(item.id, -item.quantity)
-    }
+      // Aktualisiere den lokalen Lagerbestand
+      for (const item of offlineTransaction.items) {
+        await updateProductStock(item.id, -item.quantity);
+      }
 
-    setLastCompletedSale({ amountReceived: amountReceived, change: change });
-    setIsBatchPaymentOpen(false);
-    setOrder([]);
-    setAmountReceived(0);
-    setChange(0);
-    updateProducts();
-  }
+      // Setze den Bestellstatus zurck
+      setLastCompletedSale({ amountReceived: amountReceived, change: change });
+      setLastCompletedOrder([...order]);
+      setIsBatchPaymentOpen(false);
+      setOrder([]);
+      setAmountReceived(0);
+      setChange(0);
+      updateProducts();
+
+    } catch (error) {
+      console.error("Transaction error:", error);
+      toast.error(t('pos.batchPayment.transactionError'));
+      
+      // Versuche die Transaktion offline zu speichern
+      try {
+        await addOfflineTransaction(offlineTransaction);
+        toast.success(t('pos.batchPayment.savedOffline'));
+      } catch (offlineError) {
+        console.error("Offline save error:", offlineError);
+        toast.error(t('pos.batchPayment.offlineSaveError'));
+      }
+    }
+  };
 
   const handleDashboardClick = () => {
     router.push('/dashboard')
@@ -312,236 +606,466 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
   }
 
   return (
-    <div className="flex flex-col h-screen">
-    <header className="bg-white shadow-sm p-4">
-        <div className="flex justify-between items-center">
-          <div className="flex space-x-4 overflow-x-auto">
-            {categories.map((category) => (
-              <Button
-                key={category}
-                variant={activeCategory === category ? 'default' : 'ghost'}
-                onClick={() => setActiveCategory(category)}
-              >
-                {category}
-              </Button>
-            ))}
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <Input
-                type="search"
-                placeholder="Search..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+    <>
+      <OfflineMode />
+      <div className="flex flex-col h-screen">
+        <header className="bg-white shadow-sm p-4">
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-4 overflow-x-auto">
+              {categories.map((category) => (
+                <Button
+                  key={category}
+                  variant={activeCategory === category ? 'default' : 'ghost'}
+                  onClick={() => setActiveCategory(category)}
+                >
+                  {category}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Input
+                  type="search"
+                  placeholder={t('common.search')}
+                  className="pl-8"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
             </div>
           </div>
-        </div>
-        <OfflineMode />
-      </header>
-      <Toaster position="bottom-right" />
+        </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-4 bg-gray-100">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {filteredItems.map(item => (
-              <Card 
-                key={item.id}
-                className={`overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-200 ${
-                  !isProductAvailable(item) ? 'opacity-50' : ''
-                }`} 
-                onClick={() => addToOrder(item)}
-              >
-                <CardContent className="p-0 relative">
-                  <Image 
-                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${item.product_img_path}`}
-                    alt={item.product_name}
-                    width={300}
-                    height={200}
-                    className="w-full h-32 object-cover"
-                  />
-                  <div className="p-2">
-                    <h3 className="font-semibold text-sm">{item.product_name}</h3>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-sm font-bold text-green-600">{formatCurrency(item.product_price)}</p>
-                      <p className="text-xs text-gray-500">Stock: {item.product_stock}</p>
+        <Toaster position="bottom-right" />
+
+        <div className="flex flex-1 overflow-hidden">
+          <main className="flex-1 overflow-y-auto p-4 bg-gray-100">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {filteredItems.map(item => (
+                <Card 
+                  key={item.id}
+                  className={`overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-200 ${
+                    !isProductAvailable(item) ? 'opacity-50' : ''
+                  }`} 
+                  onClick={() => addToOrder(item)}
+                >
+                  <CardContent className="p-0 relative">
+                    <Image 
+                      src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${item.product_img_path}`}
+                      alt={item.product_name}
+                      width={300}
+                      height={200}
+                      className="w-full h-32 object-contain"
+                    />
+                    <div className="p-2">
+                      <h3 className="font-semibold text-sm">{item.product_name}</h3>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-sm font-bold text-green-600">{formatCurrency(item.product_price)}</p>
+                        <p className="text-xs text-gray-500">Stock: {item.product_stock}</p>
+                      </div>
+                    </div>
+                    {!isProductAvailable(item) && (
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute top-1 right-1 rounded-full p-0.5 h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleProductClick(item);
+                        }}
+                      >
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="sr-only">{t('pos.productDialog.productNotAvailable')}</span>
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </main>
+
+          <aside className="w-96 bg-white shadow-xl overflow-hidden flex flex-col">
+            <div className="p-4 bg-gray-50 border-b">
+              <h2 className="text-xl font-bold">{t('pos.currentOrder')}</h2>
+            </div>
+            
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-3">
+                {order.map(item => (
+                  <div 
+                    key={item.id} 
+                    className="bg-white border rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200"
+                  >
+                    <div className="p-3">
+                      {/* Produktname und Entfernen-Button */}
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-medium text-gray-900">{item.product_name}</h3>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-gray-400 hover:text-red-600"
+                          onClick={() => removeFromOrder(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      
+                      {/* Preis und Menge */}
+                      <div className="flex justify-between items-center">
+                        <p className="text-green-600 font-semibold">
+                          {formatCurrency(item.product_price)}
+                          <span className="text-gray-400 text-sm ml-1">{t('pos.perUnit')}</span>
+                        </p>
+                        
+                        <div className="flex items-center space-x-1 bg-gray-50 rounded-lg p-1">
+                          <Button 
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-8 text-center font-medium">{item.quantity}</span>
+                          <Button 
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Gesamtpreis für diesen Artikel */}
+                      <div className="mt-2 text-right text-sm text-gray-500">
+                        {t('pos.subtotal')}: {formatCurrency(item.product_price * item.quantity)}
+                      </div>
                     </div>
                   </div>
-                  {!isProductAvailable(item) && (
-                    <Button
-                      size="icon"
-                      variant="destructive"
-                      className="absolute top-1 right-1 rounded-full p-0.5 h-6 w-6"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleProductClick(item);
-                      }}
-                    >
-                      <AlertCircle className="h-4 w-4"   />
-                      <span className="sr-only">Product nicht verfügbar</span>
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </main>
-
-        <aside className="w-80 bg-white shadow-xl overflow-hidden flex flex-col">
-          <div className="p-4 font-semibold text-lg border-b">Aktuelle Bestellung</div>
-          <ScrollArea className="flex-1">
-            <div className="p-4 space-y-2">
-              {order.map(item => (
-                <div key={item.id} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                  <div className="flex flex-col">
-                    <span className="font-medium">{item.product_name}</span>
-                    <span className="text-sm text-gray-500">{formatCurrency(item.product_price)} pro Stück</span>
+                ))}
+                
+                {order.length === 0 && (
+                  <div className="text-center py-8">
+                    <ShoppingCart className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">{t('pos.emptyOrder')}</p>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-6 text-center text-sm">{item.quantity}</span>
-                    <Button size="sm" variant="outline" onClick={() => updateQuantity(item.id, item.quantity + 1)}>
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                    <Button size="icon" variant="ghost" onClick={() => removeFromOrder(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                )}
+              </div>
+            </ScrollArea>
+
+            {/* Unterer Bereich mit Numpad und Zahlungsinformationen */}
+            <div className="border-t bg-gray-50 p-4">
+              {/* Letzte Transaktion */}
+              {lastCompletedSale && (
+                <div className="mb-4 bg-green-50 rounded-lg p-3">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-600">{t('pos.received')}:</span>
+                    <span className="font-medium">{formatCurrency(lastCompletedSale.amountReceived)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">{t('pos.change')}:</span>
+                    <span className="font-medium">{formatCurrency(lastCompletedSale.change)}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-          <div className="p-4 border-t">
-            <div className="flex justify-between mb-4">
-              <div className="text-center">
-                <div>Gegeben</div>
-                <div>{formatCurrency(lastCompletedSale ? lastCompletedSale.amountReceived : 0)}</div>
-              </div>
-              <div className="text-center">
-                <div>Rückgeld</div>
-                <div>{formatCurrency(lastCompletedSale ? lastCompletedSale.change : 0)}</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((num) => (
-                <Button key={num} variant="outline" onClick={() => handleKeypadClick(num)} className="h-12 text-xl font-semibold">
-                  {num}
+              )}
+
+              {/* Numpad Grid */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
+                  <Button
+                    key={num}
+                    variant="outline"
+                    onClick={() => handleKeypadClick(num)}
+                    className="h-12 text-xl font-medium hover:bg-gray-100"
+                  >
+                    {num}
+                  </Button>
+                ))}
+                {/* Kassenbon-Button */}
+                {lastCompletedOrder.length > 0 && lastCompletedSale && (
+                  <PDFDownloadLink
+                    document={
+                      <ReceiptPDF 
+                        order={lastCompletedOrder}
+                        total={lastCompletedOrder.reduce((sum, item) => sum + item.product_price * item.quantity, 0)}
+                        amountReceived={lastCompletedSale.amountReceived}
+                        change={lastCompletedSale.change}
+                      />
+                    }
+                    fileName="kassenbon.pdf"
+                  >
+                    <Button 
+                      variant="outline" 
+                      className="h-12 w-full flex items-center justify-center hover:bg-gray-100"
+                      disabled={false}
+                    >
+                      <Printer className="h-5 w-5" />
+                    </Button>
+                  </PDFDownloadLink>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => handleKeypadClick('0')}
+                  className="h-12 text-xl font-medium hover:bg-gray-100"
+                >
+                  0
                 </Button>
-              ))}
-              <Button variant="outline" onClick={() => handleKeypadClick('backspace')} className="h-12">
-                <ArrowLeft className="h-6 w-6" />
+                <Button
+                  variant="outline"
+                  onClick={() => handleKeypadClick('backspace')}
+                  className="h-12 hover:bg-gray-100"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Gesamtsumme */}
+              <div className="bg-gray-100 rounded-lg p-4 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-medium">{t('pos.subtotal')}:</span>
+                  <span className="text-2xl font-bold text-green-600">{formatCurrency(total)}</span>
+                </div>
+              </div>
+
+              {/* Zahlungs-Button */}
+              <Button
+                className="w-full h-14 text-lg font-medium bg-black hover:bg-gray-800 text-white"
+                onClick={handleBatchPayment}
+                disabled={order.length === 0}
+              >
+                <ShoppingCart className="mr-2 h-5 w-5" />
+                {t('pos.payment')}
               </Button>
             </div>
-            <div className="bg-gray-100 p-3 rounded-lg mb-4 flex justify-between items-center">
-              <span className="text-lg font-semibold">Zwischensumme:</span>
-              <span className="text-xl font-bold">{formatCurrency(total)}</span>
-            </div>
-            <Button className="w-full h-12 text-lg bg-black hover:bg-gray-800 text-white" onClick={handleBatchPayment} disabled={order.length === 0}>
-              Zur Zahlung
-            </Button>
-          </div>
-        </aside>
-      </div>
-
-      <footer className="bg-white shadow-lg">
-        <div className="flex justify-center space-x-4 p-2">
-          <Button variant={activeView === 'checkout' ? 'default' : 'ghost'} onClick={() => setActiveView('checkout')}>
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            Kasse
-          </Button>
-          <Button variant={activeView === 'dashboard' ? 'default' : 'ghost'} onClick={handleDashboardClick}>
-            <BarChart2 className="mr-2 h-4 w-4" />
-            Dashboard
-          </Button>
+          </aside>
         </div>
-      </footer>
 
-      <Dialog open={isBatchPaymentOpen} onOpenChange={setIsBatchPaymentOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Batchzahlung</DialogTitle>
-            <DialogDescription>Wählen Sie die vom Kunden erhaltenen Banknoten aus.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="flex items-center justify-between">
-              <Label>Zu zahlender Betrag:</Label>
-              <span className="font-bold">{formatCurrency(total)}</span>
+        <Footer activeView={activeView} />
+
+        <Dialog open={isBatchPaymentOpen} onOpenChange={setIsBatchPaymentOpen}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold">{t('pos.batchPayment.title')}</DialogTitle>
+              <DialogDescription className="text-gray-500">
+                {t('pos.batchPayment.description')}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {/* Hauptbereich mit Grid-Layout */}
+            <div className="grid grid-cols-2 gap-6 py-6">
+              {/* Linke Spalte - Zahlungsübersicht */}
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-500">{t('pos.batchPayment.amountDue')}</p>
+                  <p className="text-3xl font-bold text-green-600">{formatCurrency(total)}</p>
+                </div>
+                
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-500">{t('pos.batchPayment.amountReceived')}</p>
+                  <p className="text-3xl font-bold text-blue-600">{formatCurrency(amountReceived)}</p>
+                </div>
+                
+                <div className={`bg-gray-50 p-4 rounded-lg ${change >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                  <p className="text-sm text-gray-500">{t('pos.change')}</p>
+                  <p className={`text-3xl font-bold ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(change)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Rechte Spalte - Geldscheine */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {banknotes.map((banknote) => (
+                    <Button
+                      key={banknote.value}
+                      onClick={() => handleBanknoteClick(banknote.value)}
+                      className="p-2 h-auto hover:scale-105 transition-transform duration-200"
+                      variant="outline"
+                    >
+                      <div className="relative w-full aspect-[2/1]">
+                        <Image
+                          src={banknote.image}
+                          alt={`${formatCurrency(banknote.value)}`}
+                          width={200}
+                          height={100}
+                          className="object-contain rounded-md"
+                        />
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+                
+                {/* Schnellauswahl für häufige Beträge */}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAmountReceived(total)}
+                    className="text-sm"
+                  >
+                    {t('pos.batchPayment.exact')}
+                  </Button>
+                
+                  <Button
+                    variant="outline"
+                    onClick={() => setAmountReceived(0)}
+                    className="text-sm"
+                  >
+                    {t('pos.batchPayment.clear')}
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              {banknotes.map((banknote) => (
-                <Button
-                  key={banknote.value}
-                  onClick={() => handleBanknoteClick(banknote.value)}
-                  className="p-0 h-auto"
-                >
-                  <img
-                    src={banknote.image}
-                    alt={`${banknote.value} Dinar Schein`}
-                    className="w-full h-auto object-cover rounded-md"
+
+            {/* Status-Nachricht */}
+            {amountReceived < total && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
+                  <p className="mr-1.5 text-sm text-yellow-700">
+                    {t('pos.batchPayment.insufficientAmount')}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Footer mit Aktionen */}
+            <DialogFooter className="space-x-4 gap-2">
+            <Button
+                onClick={handleCompleteBatchPayment}
+                disabled={amountReceived < total}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                {t('pos.batchPayment.completeTransaction')}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsBatchPaymentOpen(false);
+                  setAmountReceived(0);
+                  setChange(0);
+                }}
+                className="flex-1"
+              >
+                {t('common.cancel')}
+              </Button>
+              
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold">{t('pos.productDialog.title')}</DialogTitle>
+            </DialogHeader>
+            {selectedProduct && (
+              <div className="space-y-6">
+                {/* Produktbild mit Overlay für abgelaufene/nicht verfügbare Produkte */}
+                <div className="relative rounded-lg overflow-hidden">
+                  <Image
+                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${selectedProduct.product_img_path}`}
+                    alt={selectedProduct.product_name}
+                    width={500}
+                    height={300}
+                    className="w-full h-64 object-contain"
                   />
-                </Button>
-              ))}
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Erhaltener Betrag:</Label>
-              <span className="font-bold">{formatCurrency(amountReceived)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>Rückgeld:</Label>
-              <span className={`font-bold ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(change)}
-              </span>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => {
-              setIsBatchPaymentOpen(false);
-              setAmountReceived(0);
-              setChange(0);
-            }} variant="outline">
-              Abbrechen
-            </Button>
-            <Button onClick={handleCompleteBatchPayment} disabled={amountReceived < total}>
-              Transaktion abschließen
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                  {getProductAvailabilityStatus(selectedProduct) !== 'available' && (
+                    <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                      <div className="bg-white bg-opacity-90 px-4 py-2 rounded-full">
+                        <p className="text-red-600 font-semibold flex items-center">
+                          <AlertCircle className="w-5 h-5 mr-2" />
+                          {getProductAvailabilityStatus(selectedProduct) === 'expired' 
+                            ? t('pos.productDialog.expired')
+                            : t('pos.productDialog.outOfStock')
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-      <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Produktdetails</DialogTitle>
-          </DialogHeader>
-          {selectedProduct && (
-            <div className="grid gap-4 py-4">
-              <Image
-                src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${selectedProduct.product_img_path}`}
-                alt={selectedProduct.product_name}
-                width={300}
-                height={200}
-                className="w-full h-48 object-cover rounded-md"
-              />
-              <h3 className="text-lg font-semibold">{selectedProduct.product_name}</h3>
-              <p>
-                Grund: {selectedProduct.product_stock === 0 ? 'Ausverkauft' : 'Abgelaufen'}
-              </p>
-              <p>
-                Lagerbestand: {inventory.find(item => item.product_id === selectedProduct.id)?.quantity || 0}
-              </p>
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setIsProductDialogOpen(false)}>
-              Schließen
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+                {/* Produktdetails */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-start">
+                    <h3 className="text-xl font-bold">{selectedProduct.product_name}</h3>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-green-600 mb-1">
+                        {formatCurrency(selectedProduct.product_price)}
+                      </p>
+                      <p className="text-sm text-gray-500">{t('pos.perUnit')}</p>
+                    </div>
+                  </div>
+
+                  {/* Status-Karte */}
+                  {getProductAvailabilityStatus(selectedProduct) !== 'available' && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <div className="flex-shrink-0">
+                          <AlertCircle className="h-5 w-5 text-red-600" />
+                        </div>
+                        <div className="ml-3">
+                          <h3 className="mr-1.5 text-sm font-medium text-red-800">
+                            {t('pos.productDialog.reason')}
+                          </h3>
+                          <p className="mt-1 text-sm text-red-700">
+                            {getProductAvailabilityStatus(selectedProduct) === 'expired' 
+                              ? t('pos.productDialog.expired')
+                              : t('pos.productDialog.outOfStock')
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Info-Grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-500">{t('pos.stock')}</p>
+                      <p className="text-lg font-semibold">
+                        {selectedProduct.product_stock}
+                        <span className="mr-1 text-sm text-gray-500 ml-1">{t('pos.units')}</span>
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-500">{t('pos.inventory')}</p>
+                      <p className="text-lg font-semibold">
+                        {inventory.find(item => item.product_id === selectedProduct.id)?.quantity || 0}
+                        <span className="mr-1 text-sm text-gray-500 ml-1">{t('pos.units')}</span>
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-4 rounded-lg col-span-2">
+                      <p className="mb-1 text-sm text-gray-500">{t('pos.productDialog.expiryDate')}</p>
+                      {selectedProduct && (() => {
+                        const { formattedDate, statusText, statusClass } = formatExpiryDate(selectedProduct.expiry_date, t as (key: string) => string);
+                        return (
+                          <div className="space-y-1">
+                            <p className={`text-sm font-medium ${statusClass}`}>
+                              {statusText}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter className="mt-6">
+              <Button 
+                onClick={() => setIsProductDialogOpen(false)}
+                className="w-full"
+              >
+                {t('common.close')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </>
   )
 }

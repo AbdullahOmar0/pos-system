@@ -1,0 +1,309 @@
+{
+  "common": {
+    "cancel": "پاشگەز بوونەوە",
+    "close": "داخستن",
+    "save": "پاشەکەوت کردن",
+    "delete": "سڕینەوە",
+    "edit": "دەستکاریکردن",
+    "search": "گەڕان",
+    "filter": "فلتەر",
+    "actions": "کردارەکان",
+    "areYouSure": "دڵنیای؟",
+    "thisActionCannotBeUndone": "ئەم کردارە ناگەڕێتەوە"
+  },
+  "pos": {
+    "currentOrder": "داواکاری ئێستا",
+    "subtotal": "سەرجەم",
+    "payment": "پارە دان",
+    "received": "وەرگیراو",
+    "change": "باقی",
+    "stock": "Lagerbestand",
+    "batchPayment": {
+      "title": "پارەدانی کۆمەڵ",
+      "description": "پارەی وەرگیراو لە کڕیار دیاری بکە",
+      "amountDue": "بڕی پارەی داواکراو",
+      "amountReceived": "بڕی پارەی وەرگیراو",
+      "completeTransaction": "تەواوکردنی مامەڵە",
+      "insufficientAmount": "بڕی پارە بەس نیە",
+      "offlineTransactionSaved": "مامەڵە لە دەرهێڵ پاشەکەوت کرا",
+      "transactionComplete": "مامەڵە بە سەرکەوتوویی تەواو بوو",
+      "transactionError": "هەڵە لە مامەڵەکە",
+      "savedOffline": "مامەڵە لە دەرهێڵ پاشەکەوت کرا",
+      "offlineSaveError": "هەڵە لە پاشەکەوتکردنی مامەڵەی دەرهێڵ",
+      "errorSavingOffline": "هەڵە لە پرۆسەکە. مامەڵە لە دەرهێڵ پاشەکەوت کرا",
+      "exact": "بڕی تەواو",
+      "clear": "پاککردنەوە"
+    },
+    "productDialog": {
+      "title": "وردەکاری بەرهەم",
+      "outOfStock": "بەردەست نیە",
+      "expired": "بەرهەمەکە بەسەرچووە",
+      "reason": "هۆکار",
+      "productNotAvailable": "بەرهەم بەردەست نیە",
+      "stock": "یەدەک",
+      "expiryDate": "بەرواری بەسەرچوون",
+      "expiredAgo": "بەسەرچووە پێش {days} ڕۆژ",
+      "expirestoday": "ئەمڕۆ بەسەردەچێت",
+      "expiresSoon": "بەسەردەچێت لە {days} ڕۆژ",
+      "expiresIn": "ماوەی {days} ڕۆژی ماوە"
+    },
+    "keypad": {
+      "backspace": "سڕینەوە"
+    },
+    "perUnit": "بۆ هەر دانەیەک",
+    "printReceipt": "Kassenbon drucken",
+    "inStock": "auf Lager",
+    "inventory": "یەدەگ",
+    "units": "دانە",
+    "emptyOrder": "داواکاریەکەت بەتاڵە"
+  },
+  "dashboard": {
+    "title": "داشبۆرد",
+    "overview": {
+      "title": "گشتی",
+      "totalRevenue": "داهاتی گشتی",
+      "sales": "فرۆشتن",
+      "customers": "کڕیارەکان",
+      "averageOrderValue": "تێکڕای نرخی داواکاری",
+      "fromPreviousPeriod": "لە ماوەی پێشوو",
+      "salesOverview": "تێڕوانینی فرۆشتن",
+      "topProducts": "بەرهەمە باشەکان",
+      "noDataAvailable": "هیچ داتایەک بەردەست نیە"
+    },
+    "products": {
+      "title": "بەرهەمەکان",
+      "description": "بەڕێوەبردنی بەرهەمەکان و بینینی کارایی فرۆشتنیان",
+      "addProduct": "زیادکردنی بەرهەم",
+      "editProduct": "دەستکاری بەرهەم",
+      "deleteProduct": "سڕینەوەی بەرهەم",
+      "name": "ناو",
+      "category": "پۆل",
+      "price": "نرخ",
+      "stock": "یەدەک",
+      "barcode": "بارکۆد",
+      "expiryDate": "بەرواری بەسەرچوون",
+      "productImage": "وێنەی بەرهەم",
+      "pickADate": "بەروار هەڵبژێرە",
+      "selectCategory": "پۆل هەڵبژێرە",
+      "searchPlaceholder": "گەڕان بۆ بەرهەمەکان...",
+      "categoryFilter": "فلتەری پۆل",
+      "allCategories": "هەموو پۆلەکان",
+      "expiryStatusFilter": "فلتەری دۆخی بەسەرچوون",
+      "selectExpiryStatus": "دۆخی بەسەرچوون هەڵبژێرە",
+      "allStatuses": "هەموو دۆخەکان",
+      "expired": "بەسەرچووە",
+      "expiresToday": "ئەمڕۆ بەسەردەچێت",
+      "notExpired": "بەسەرنەچووە",
+      "stockLevel": "ئاستی یەدەک",
+      "selectStockLevel": "ئاستی یەدەک هەڵبژێرە",
+      "allLevels": "هەموو ئاستەکان",
+      "lowStock": "یەدەکی کەم (<{count})",
+      "mediumStock": "یەدەکی مامناوەند ({count})",
+      "highStock": "یەدەکی زۆر (>{count})",
+      "expiryStatus": "دۆخی بەسەرچوون",
+      "showingEntries": "پیشاندانی {start} بۆ {end} لە {total} تۆمار",
+      "saveProduct": "پاشەکەوتکردنی بەرهەم",
+      "updateProduct": "نوێکردنەوەی بەرهەم",
+      "updateProductDetails": "وردەکاریەکانی بەرهەم نوێبکەرەوە",
+      "addProductDescription": "بەرهەمێکی نوێ زیاد بکە. کاتێک تەواو بوویت کلیک لەسەر پاشەکەوتکردن بکە",
+      "filteringByCategory": "پیشاندانی بەرهەمەکانی پۆلی: {category}",
+      "clearFilter": "پاککردنەوەی فلتەر"
+    },
+    "categories": {
+      "title": "پۆلەکان",
+      "description": "بەڕێوەبردنی پۆلەکانی بەرهەم",
+      "addCategory": "زیادکردنی پۆل",
+      "editCategory": "دەستکاری پۆل",
+      "deleteCategory": "سڕینەوەی پۆل",
+      "name": "ناو",
+      "makeChanges": "گۆڕانکاری بکە لە پۆل",
+      "saveChanges": "پاشەکەوتکردنی گۆڕانکاریەکان",
+      "saveCategory": "پاشەکەوتکردنی پۆل",
+      "addCategoryDescription": "پۆلێکی نوێ زیاد بکە. کاتێک تەواو بوویت کلیک لەسەر پاشەکەوتکردن بکە",
+      "products": "بەرهەمەکان",
+      "inStock": "لە یەدەک",
+      "viewProducts": "بینینی بەرهەمەکان",
+      "totalValue": "بەهای گشتی",
+      "itemsInStock": "بەرهەمەکان لە یەدەک",
+      "noProducts": "هیچ بەرهەمێک نیە",
+      "statistics": {
+        "totalProducts": "کۆی بەرهەمەکان",
+        "totalValue": "بەهای گشتی",
+        "averagePrice": "تێکڕای نرخ",
+        "lowStock": "یەدەکی کەم"
+      }
+    },
+    "inventory": {
+      "title": "یەدەک",
+      "description": "بەڕێوەبردنی یەدەک و ئاستەکانی یەدەک",
+      "addInventoryItem": "زیادکردنی یەدەک",
+      "editInventoryItem": "دەستکاری یەدەک",
+      "deleteInventoryItem": "سڕینەوەی یەدەک",
+      "selectProduct": "هەڵبژاردنی بەرهەم",
+      "name": "ناو",
+      "category": "پۆل",
+      "price": "نرخ",
+      "quantity": "بڕ",
+      "barcode": "بارکۆد",
+      "expiryDate": "بەرواری بەسەرچوون",
+      "image": "وێنە",
+      "noImage": "وێنە نیە",
+      "searchPlaceholder": "گەڕان بۆ یەدەک...",
+      "categoryFilter": "فلتەری پۆل",
+      "selectCategory": "پۆل هەڵبژێرە",
+      "allCategories": "هەموو پۆلەکان",
+      "expiryStatusFilter": "فلتەری دۆخی بەسەرچوون",
+      "selectExpiryStatus": "دۆخی بەسەرچوون هەڵبژێرە",
+      "allStatuses": "هەموو دۆخەکان",
+      "expired": "بەسەرچووە",
+      "expiresToday": "ئەمڕۆ بەسەردەچێت",
+      "expiresSoon": "بەم زووانە بەسەردەچێت ({days} ڕۆژ)",
+      "good": "باش",
+      "stockLevel": "ئاستی یەدەک",
+      "selectStockLevel": "ئاستی یەدەک هەڵبژێرە",
+      "allLevels": "هەموو ئاستەکان",
+      "lowStock": "یەدەکی کەم (<{count})",
+      "mediumStock": "یەدەکی ماماوەند ({count})",
+      "highStock": "یەدەکی زۆر (>{count})",
+      "showingEntries": "پیشاندانی {start} بۆ {end} لە {total} تۆمار",
+      "makeChanges": "گۆڕانکاری بکە لە یەدەک",
+      "saveChanges": "پاشەکەوتکردنی گۆڕانکاریەکان",
+      "addInventoryItemDescription": "بەرهەمێک هەڵبژێرە و وردەکاریەکانی یەدەک زیاد بکە",
+      "saveInventoryItem": "پاشەکەوتکردنی یەدەک",
+      "actions": "کردارەکان",
+      "table": {
+        "actions": "کردارەکان",
+        "image": "وێنە",
+        "name": "ناو",
+        "category": "پۆل",
+        "quantity": "بڕ",
+        "price": "نرخ",
+        "expiryDate": "بەرواری بەسەرچوون",
+        "status": "دۆخ",
+        "noResults": "هیچ ئەنجامێک نەدۆزرایەوە"
+      }
+    },
+    "analytics": {
+      "title": "شیکاری",
+      "description": "شیکردنەوەی داتاکان و ڕاپۆرتەکان",
+      "salesTrend": "ڕێڕەوی فرۆشتن",
+      "topSellingProducts": "بەرهەمە زۆر فرۆشراوەکان",
+      "salesByCategory": "فرۆشتن بەپێی پۆل",
+      "keyMetrics": "پێوەرە سەرەکیەکان",
+      "totalRevenue": "داهاتی گشتی",
+      "sales": "فرۆشتن",
+      "customers": "کڕیارەکان",
+      "averageOrderValue": "تێکڕای نرخی داواکاری",
+      "fromPreviousPeriod": "لە ماوەی پێشوو",
+      "totalOrders": "کۆی داواکاریەکان",
+      "noDataAvailable": "هیچ داتایەک بەردەست نیە",
+      "revenueOverTime": "داهات بەپێی کات",
+      "ordersByStatus": "داواکاریەکان بەپێی دۆخ",
+      "customerGrowth": "گەشەی کڕیارەکان",
+      "topCustomers": "کڕیارە باشەکان",
+      "profitMargin": "ڕێژەی قازانج",
+      "inventoryValue": "بەهای یەدەک",
+      "averageOrderSize": "تێکڕای قەبارەی داواکاری",
+      "salesByTime": {
+        "daily": "فرۆشتنی ڕۆژانە",
+        "weekly": "فرۆشتنی هەفتانە",
+        "monthly": "فرۆشتنی مانگانە",
+        "yearly": "فرشتنی ساڵانە"
+      }
+    },
+    "notifications": {
+      "title": "ئاگادارکردنەوەکان",
+      "noNotifications": "هیچ ئاگادارکردنەوەیەک نیە",
+      "lowStock": "یەدەکی کەم",
+      "expiringProduct": "بەرهەمی بەسەرچوو",
+      "messages": {
+        "lowStock": "یەدەکی کەم: {productName} ({quantity} دانە ماوە)",
+        "expired": "بەرهەم بەسەرچووە: {productName} (لە {days} ڕۆژ پێش ئێستا)",
+        "expirestoday": "بەرهەم ئەمڕۆ بەسەردەچێت: {productName}",
+        "expiresSoon": "بەرهەم بەم زووانە بەسەردەچێت: {productName} (لە {days} ڕۆژ)"
+      }
+    },
+    "dateRanges": {
+      "selectRange": "هەڵبژاردنی ماوە",
+      "today": "ئەمڕۆ",
+      "yesterday": "دوێنێ",
+      "thisWeek": "ئەم هەفتەیە",
+      "thisMonth": "ئەم مانگە",
+      "thisYear": "ئەم ساڵ",
+      "custom": "دیاریکراو"
+    },
+    "pagination": {
+      "previous": "پێشوو",
+      "next": "دواتر",
+      "showing": "پیشاندانی",
+      "to": "بۆ",
+      "of": "لە",
+      "entries": "تۆمارەکان"
+    },
+    "deleteConfirmation": {
+      "title": "دڵنیای؟",
+      "description": "ئەم کردارە ناگەڕێتەوە. ئەمە بە تەواوی {type} دەسڕێتەوە و لە سێرڤەرەکانمان لای دەبات.",
+      "confirm": "سڕینەوە",
+      "cancel": "پاشگەز بوونەوە"
+    },
+    "filters": {
+      "title": "فلتەرەکان",
+      "apply": "جێبەجێکردن",
+      "clear": "پاککردنەوە",
+      "status": {
+        "all": "هەموو",
+        "active": "چالاک",
+        "inactive": "ناچالاک"
+      }
+    },
+    "table": {
+      "noResults": "هیچ ئەنجامێک نەدۆزرایەوە",
+      "loading": "چاوەڕێ بکە...",
+      "search": "گەڕان...",
+      "actions": "کردارەکان"
+    }
+  },
+  "notifications": {
+    "offline": {
+      "title": "دەرهێڵ",
+      "description": "ئێستا لە دۆخی دەرهێڵدایت. مامەڵەکان لە ناوخۆ پاشەکەوت دەکرێن"
+    },
+    "online": {
+      "title": "سەرهێڵ",
+      "description": "گەڕایتەوە سەرهێڵ. مامەڵە پاشەکەوتکراوەکان هاوکات دەکرێن"
+    },
+    "syncing": {
+      "title": "هاوکات کردن",
+      "description": "هاوکات کردنی مامەڵە دەرهێڵەکان...",
+      "completed": "هاوکات کردن تەواو بوو",
+      "completedDescription": "هەموو مامەڵە دەرهێڵەکان هاوکات کران"
+    },
+    "dbError": {
+      "title": "هەڵەی داتابەیس",
+      "description": "نەتوانرا داتابەیسی دەرهێڵ دەستپێبکرێت. تکایە پەڕەکە نوێبکەرەوە"
+    },
+    "success": {
+      "productAdded": "بەرهەم بە سەرکەوتوویی زیادکرا",
+      "productUpdated": "بەرهەم نوێکرایەوە",
+      "productDeleted": "بەرهەم سڕایەوە",
+      "categoryAdded": "پۆل زیادکرا",
+      "categoryUpdated": "پۆل نوێکرایەوە",
+      "categoryDeleted": "پۆل سڕایەوە",
+      "inventoryAdded": "یەدەک زیادکرا",
+      "inventoryUpdated": "یەدەک نوێکرایەوە",
+      "inventoryDeleted": "یەدەک سڕایەوە"
+    },
+    "error": {
+      "productAdd": "هەڵە لە زیادکردنی بەرهەم",
+      "productUpdate": "هەڵە لە نوێکردنەوەی بەرهەم",
+      "productDelete": "هەڵە لە سڕینەوەی بەرهەم",
+      "categoryAdd": "هەڵە لە زیادکردنی پۆل",
+      "categoryUpdate": "هەڵە لە نوێکردنەوەی پۆل",
+      "categoryDelete": "هەڵە لە سڕینەوەی پۆل",
+      "inventoryAdd": "هەڵە لە زیادکردنی یەدەک",
+      "inventoryUpdate": "هەڵە لە نوێکردنەوەی یەدەک",
+      "inventoryDelete": "هەڵە لە سڕینەوەی یەدەک"
+    }
+  }
+  
+} 
