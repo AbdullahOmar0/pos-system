@@ -16,7 +16,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 import { Toaster, toast } from 'sonner'
 
 import Image from 'next/image'
@@ -24,7 +23,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { OfflineMode, addOfflineTransaction, OfflineTransaction, updateProductStock, getProductFromIndexedDB } from '@/utils/offline-mode'
 import { Footer } from "@/components/footer"
 import { useTranslation } from '@/hooks/useTranslation';
-import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer'
+import { PDFDownloadLink, Document, Page } from '@react-pdf/renderer'
+import Receipt from '@/components/Receipt'
 
 interface MenuItem {
   id: string
@@ -72,210 +72,6 @@ const isProductAvailable = (item: MenuItem) => {
   return item.product_stock > 0 && expirationDate > today
 }
 
-Font.register({
-  family: 'NotoSans',
-  src: 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-arabic/files/noto-sans-arabic-arabic-400-normal.woff'
-});
-
-const receiptStyles = StyleSheet.create({
-  page: {
-    flexDirection: 'column',
-    backgroundColor: '#FFFFFF',
-    padding: 15,
-    fontFamily: 'NotoSans',
-  },
-  header: {
-    fontSize: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'NotoSans',
-  },
-  subHeader: {
-    fontSize: 10,
-    marginBottom: 15,
-    textAlign: 'center',
-    color: '#666',
-    fontFamily: 'NotoSans',
-  },
-  divider: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#000',
-    borderBottomStyle: 'dashed',
-    marginVertical: 8,
-  },
-  table: {
-    width: '100%',
-    marginVertical: 8,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#000',
-    marginBottom: 4,
-    backgroundColor: '#f8f9fa',
-  },
-  tableHeaderCell: {
-    fontSize: 8,
-    fontFamily: 'NotoSans',
-    flex: 1,
-    textAlign: 'right',
-  },
-  tableCol: {
-    flex: 1,
-    textAlign: 'right',
-    paddingHorizontal: 2,
-  },
-  tableCell: {
-    fontSize: 8,
-    padding: 2,
-    fontFamily: 'NotoSans',
-  },
-  total: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#000',
-    paddingHorizontal: 2,
-  },
-  totalLabel: {
-    fontSize: 10,
-    fontFamily: 'NotoSans',
-    textAlign: 'right',
-  },
-  totalValue: {
-    fontSize: 10,
-    fontFamily: 'NotoSans',
-    textAlign: 'right',
-  },
-  footer: {
-    marginTop: 20,
-    fontSize: 8,
-    textAlign: 'center',
-    color: '#666',
-    fontFamily: 'NotoSans',
-  },
-  datetime: {
-    fontSize: 8,
-    textAlign: 'center',
-    marginTop: 10,
-    color: '#666',
-    fontFamily: 'NotoSans',
-  },
-  storeName: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: 4,
-    fontFamily: 'NotoSans',
-  },
-  storeInfo: {
-    fontSize: 8,
-    textAlign: 'center',
-    color: '#666',
-    marginBottom: 10,
-    fontFamily: 'NotoSans',
-  }
-});
-
-const ReceiptPDF = ({ order, total, amountReceived, change }: { 
-  order: OrderItem[], 
-  total: number, 
-  amountReceived: number, 
-  change: number 
-}) => {
-  const currentDate = new Date().toLocaleDateString('ckb-IR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-  
-  const currentTime = new Date().toLocaleTimeString('ckb-IR');
-
-  return (
-    <Document>
-      <Page size="A6" style={receiptStyles.page}>
-        <Text style={receiptStyles.storeName}>فرۆشگای من</Text>
-        <Text style={receiptStyles.storeInfo}>
-          ناونیشان: شەقامی سەرەکی، هەولێر{'\n'}
-          تەلەفۆن: ٠٧٥٠ ١٢٣ ٤٥٦٧
-        </Text>
-        
-        <Text style={receiptStyles.header}>پسوڵەی کڕین</Text>
-        
-        <View style={receiptStyles.divider} />
-        
-        {/* Table Header */}
-        <View style={receiptStyles.tableHeader}>
-          <Text style={receiptStyles.tableHeaderCell}>دانە</Text>
-          <Text style={receiptStyles.tableHeaderCell}>نرخ</Text>
-          <Text style={receiptStyles.tableHeaderCell}>کۆی گشتی</Text>
-          <Text style={[receiptStyles.tableHeaderCell]}>بەرهەم</Text>
-
-        </View>
-
-        {/* Table Content */}
-        <View style={receiptStyles.table}>
-          {order.map((item, index) => (
-            <View style={receiptStyles.tableRow} key={index}>
-             
-              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
-                {item.quantity}
-              </Text>
-              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
-                {formatCurrency(item.product_price)}
-              </Text>
-              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
-                {formatCurrency(item.product_price * item.quantity)}
-              </Text>
-              <Text style={[receiptStyles.tableCol, receiptStyles.tableCell]}>
-                {item.product_name}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={receiptStyles.divider} />
-
-        {/* Totals */}
-        <View style={receiptStyles.total}>
-          <Text style={receiptStyles.totalLabel}>کۆی گشتی:</Text>
-          <Text style={receiptStyles.totalValue}>{formatCurrency(total)}</Text>
-        </View>
-        
-        <View style={receiptStyles.total}>
-          <Text style={receiptStyles.totalLabel}>پارەی دراو:</Text>
-          <Text style={receiptStyles.totalValue}>{formatCurrency(amountReceived)}</Text>
-        </View>
-        
-        <View style={receiptStyles.total}>
-          <Text style={receiptStyles.totalLabel}>گەڕاوە:</Text>
-          <Text style={receiptStyles.totalValue}>{formatCurrency(change)}</Text>
-        </View>
-
-        <View style={receiptStyles.divider} />
-
-        <Text style={receiptStyles.datetime}>
-          {currentDate} - {currentTime}
-        </Text>
-
-        <Text style={receiptStyles.footer}>
-          سوپاس بۆ کڕینەکەت{'\n'}
-          بەخێربێیتەوە
-        </Text>
-      </Page>
-    </Document>
-  );
-};
-
-// Füge diese Interface-Definition hinzu
 interface BlobProviderParams {
   blob: Blob | null;
   url: string | null;
@@ -787,17 +583,10 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
                 {/* Kassenbon-Button */}
                 {lastCompletedOrder.length > 0 && lastCompletedSale && (
                   <PDFDownloadLink
-                    document={
-                      <ReceiptPDF 
-                        order={lastCompletedOrder}
-                        total={lastCompletedOrder.reduce((sum, item) => sum + item.product_price * item.quantity, 0)}
-                        amountReceived={lastCompletedSale.amountReceived}
-                        change={lastCompletedSale.change}
-                      />
-                    }
-                    fileName="kassenbon.pdf"
+                    document={<Receipt order={lastCompletedOrder} total={lastCompletedOrder.reduce((sum, item) => sum + item.product_price * item.quantity, 0)} amountReceived={lastCompletedSale.amountReceived} change={lastCompletedSale.change} currentTime={''} currentDate={''} />}
+                    fileName="receipt.pdf"
                   >
-                    <Button 
+                  <Button 
                       variant="outline" 
                       className="h-12 w-full flex items-center justify-center hover:bg-gray-100"
                       disabled={false}
@@ -1067,5 +856,7 @@ export function PosSystem({ initialProducts }: { initialProducts: MenuItem[] }) 
         </Dialog>
       </div>
     </>
+    
   )
+  
 }
