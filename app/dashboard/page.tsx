@@ -14,9 +14,7 @@ import { CalendarIcon,
   Plus, 
   Pencil, 
   Trash2, 
-  Upload, 
   MoreHorizontal, 
-  Search, 
   Settings, 
   AlertTriangle,
   Package,
@@ -38,7 +36,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { Footer } from "@/components/footer"
-import dynamic from 'next/dynamic'
 import {
   Pagination,
   PaginationContent,
@@ -49,17 +46,6 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination"
 import { useTranslation } from '@/hooks/useTranslation'
-
-
-// Komponenten dynamisch importieren
-const DashboardCharts = dynamic(() => import('@/components/dashboard/DashboardCharts'), {
-  loading: () => <div>Loading charts...</div>,
-  ssr: false // Da Charts client-side sind
-})
-
-const InventorySection = dynamic(() => import('@/components/dashboard/InventorySection'), {
-  loading: () => <div>Loading inventory...</div>
-})
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -1829,7 +1815,7 @@ const handleDeleteItem = async () => {
                 {categories.map((category) => (
                   <Card key={category.id} className="hover:shadow-lg transition-shadow">
                     <CardHeader className="flex flex-row items-center justify-between p-4">
-                      <div className="flex items-center space-x-4">
+                      <div className="flex items-center space-x-4 gap-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Package className="h-5 w-5 text-primary" />
                         </div>
@@ -1867,7 +1853,7 @@ const handleDeleteItem = async () => {
                     </CardHeader>
                     <CardContent className="p-4 pt-0">
                       <div className="flex justify-between items-center text-sm">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 gap-2">
                           <Badge variant="secondary">
                             {formatCurrency(
                               products
