@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/utils/supabase/client'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -48,14 +48,31 @@ import {
 } from "@/components/ui/pagination"
 import { useTranslation } from '@/hooks/useTranslation'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Supabase URL or Key is missing');
+// Füge diese Hilfsfunktion am Anfang der Datei hinzu, nach den Imports
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Fügen Sie diesen custom hook hinzu
+const useDebounce = (value: string, delay: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('ar-IQ', { style: 'currency', currency: 'IQD' }).format(value)
@@ -107,36 +124,10 @@ interface Notification {
   created_at: Date
 }
 
-
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
 
-// Füge diese Hilfsfunktion am Anfang der Datei hinzu, nach den Imports
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
-// Fügen Sie diesen custom hook hinzu
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
-
 export default function Dashboard() {
+  const supabase = createClient()
   const { t } = useTranslation()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -1509,10 +1500,7 @@ const handleDeleteItem = async () => {
                           <PopoverTrigger asChild>
                             <Button
                               variant={"outline"}
-                              className={cn(
-                                "w-[280px] justify-start text-left font-normal",
-                                !newProduct.expiry_date && "text-muted-foreground"
-                              )}
+                              className={`w-[280px] justify-start text-left font-normal`}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
                               {newProduct.expiry_date ? format(new Date(newProduct.expiry_date), "PPP") : <span>{t('dashboard.products.pickADate')}</span>}
@@ -2096,7 +2084,7 @@ const handleDeleteItem = async () => {
                       <TableCell>
                         {item.inventory_product_img_path ? (
                           <Image
-                            src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
+                            src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
                             alt={item.inventory_product_name}
                             width={50}
                             height={50}
