@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/utils/supabase/client'
+import { createClient } from '@supabase/supabase-js'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
@@ -48,31 +48,14 @@ import {
 } from "@/components/ui/pagination"
 import { useTranslation } from '@/hooks/useTranslation'
 
-// Füge diese Hilfsfunktion am Anfang der Datei hinzu, nach den Imports
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Supabase URL or Key is missing');
 }
 
-// Fügen Sie diesen custom hook hinzu
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('ar-IQ', { style: 'currency', currency: 'IQD' }).format(value)
@@ -124,32 +107,41 @@ interface Notification {
   created_at: Date
 }
 
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
 
+// Füge diese Hilfsfunktion am Anfang der Datei hinzu, nach den Imports
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// Fügen Sie diesen custom hook hinzu
+const useDebounce = (value: string, delay: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
 export default function Dashboard() {
-  const [isClient, setIsClient] = useState(false)
   const { t } = useTranslation()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
-  
-  useEffect(() => {
-    setIsClient(true)
-  }, [])
-
-  const supabase = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      return createClient()
-    }
-    return null
-  }, [])
-
-  // Wenn wir nicht im Client sind, zeige einen Ladeindikator
-  if (!isClient) {
-    return <div>Loading...</div>
-  }
-
   const [newProduct, setNewProduct] = useState<Product>({ 
     id: '', 
     product_name: '', 
@@ -163,147 +155,140 @@ export default function Dashboard() {
   })
   
   useEffect(() => {
-    async function fetchData() {
-      if (!supabase) return
+    let isSubscribed = true;
 
-      let isSubscribed = true;
+    const checkNotifications = async () => {
+      if (!isSubscribed) return;
 
-      const checkNotifications = async () => {
+      // Hole existierende Benachrichtigungen
+      const { data: existingNotifications, error: fetchError } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (fetchError || !isSubscribed) {
+        console.error("Error fetching notifications:", fetchError)
+        return
+      }
+
+      const today = new Date()
+      let newNotificationsToAdd: Notification[] = []
+
+      // Hilfsfunktion zum Prüfen von Duplikaten
+      const isDuplicate = (type: 'low_stock' | 'expiring_soon', message: string) => {
+        return existingNotifications?.some(n => n.type === type && n.message === message) ||
+               newNotificationsToAdd.some(n => n.type === type && n.message === message)
+      }
+
+      // Überprüfe jedes Produkt für neue Benachrichtigungen
+      for (const product of products) {
         if (!isSubscribed) return;
 
-        // Hole existierende Benachrichtigungen
-        const { data: existingNotifications, error: fetchError } = await supabase
-          .from('notifications')
-          .select('*')
-          .order('created_at', { ascending: false })
+        // Überprüfe niedrigen Lagerbestand
+        if (product.product_stock < 10) {
+          const message = t('dashboard.notifications.messages.lowStock', {
+            productName: product.product_name,
+            quantity: product.product_stock
+          })
+          
+          if (!isDuplicate('low_stock', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'low_stock',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        }
 
-        if (fetchError || !isSubscribed) {
-          console.error("Error fetching notifications:", fetchError)
+        // Überprüfe Ablaufdatum
+        const expiryDate = parseISO(product.expiry_date)
+        const daysUntilExpiry = differenceInDays(expiryDate, today)
+        
+        if (daysUntilExpiry < 0) {
+          const message = t('dashboard.notifications.messages.expired', {
+            productName: product.product_name,
+            days: Math.abs(daysUntilExpiry)
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        } else if (daysUntilExpiry === 0) {
+          const message = t('dashboard.notifications.messages.expirestoday', {
+            productName: product.product_name
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        } else if (daysUntilExpiry <= 30) {
+          const message = t('dashboard.notifications.messages.expiresSoon', {
+            productName: product.product_name,
+            days: daysUntilExpiry
+          })
+          
+          if (!isDuplicate('expiring_soon', message)) {
+            newNotificationsToAdd.push({
+              id: generateUUID(),
+              type: 'expiring_soon',
+              message,
+              read: false,
+              created_at: today
+            })
+          }
+        }
+      }
+
+      if (!isSubscribed) return;
+
+      // Füge neue Benachrichtigungen zur Datenbank hinzu
+      if (newNotificationsToAdd.length > 0) {
+        const { error: insertError } = await supabase
+          .from('notifications')
+          .insert(newNotificationsToAdd.map(n => ({
+            ...n,
+            created_at: n.created_at instanceof Date ? n.created_at.toISOString() : n.created_at
+          })))
+
+        if (insertError) {
+          console.error("Error inserting notifications:", insertError)
           return
         }
-
-        const today = new Date()
-        let newNotificationsToAdd: Notification[] = []
-
-        // Hilfsfunktion zum Prüfen von Duplikaten
-        const isDuplicate = (type: 'low_stock' | 'expiring_soon', message: string) => {
-          return existingNotifications?.some(n => n.type === type && n.message === message) ||
-                 newNotificationsToAdd.some(n => n.type === type && n.message === message)
-        }
-
-        // Überprüfe jedes Produkt für neue Benachrichtigungen
-        for (const product of products) {
-          if (!isSubscribed) return;
-
-          // Überprüfe niedrigen Lagerbestand
-          if (product.product_stock < 10) {
-            const message = t('dashboard.notifications.messages.lowStock', {
-              productName: product.product_name,
-              quantity: product.product_stock
-            })
-            
-            if (!isDuplicate('low_stock', message)) {
-              newNotificationsToAdd.push({
-                id: generateUUID(),
-                type: 'low_stock',
-                message,
-                read: false,
-                created_at: today
-              })
-            }
-          }
-
-          // Überprüfe Ablaufdatum
-          const expiryDate = parseISO(product.expiry_date)
-          const daysUntilExpiry = differenceInDays(expiryDate, today)
-          
-          if (daysUntilExpiry < 0) {
-            const message = t('dashboard.notifications.messages.expired', {
-              productName: product.product_name,
-              days: Math.abs(daysUntilExpiry)
-            })
-            
-            if (!isDuplicate('expiring_soon', message)) {
-              newNotificationsToAdd.push({
-                id: generateUUID(),
-                type: 'expiring_soon',
-                message,
-                read: false,
-                created_at: today
-              })
-            }
-          } else if (daysUntilExpiry === 0) {
-            const message = t('dashboard.notifications.messages.expirestoday', {
-              productName: product.product_name
-            })
-            
-            if (!isDuplicate('expiring_soon', message)) {
-              newNotificationsToAdd.push({
-                id: generateUUID(),
-                type: 'expiring_soon',
-                message,
-                read: false,
-                created_at: today
-              })
-            }
-          } else if (daysUntilExpiry <= 30) {
-            const message = t('dashboard.notifications.messages.expiresSoon', {
-              productName: product.product_name,
-              days: daysUntilExpiry
-            })
-            
-            if (!isDuplicate('expiring_soon', message)) {
-              newNotificationsToAdd.push({
-                id: generateUUID(),
-                type: 'expiring_soon',
-                message,
-                read: false,
-                created_at: today
-              })
-            }
-          }
-        }
-
-        if (!isSubscribed) return;
-
-        // Füge neue Benachrichtigungen zur Datenbank hinzu
-        if (newNotificationsToAdd.length > 0) {
-          const { error: insertError } = await supabase
-            .from('notifications')
-            .insert(newNotificationsToAdd.map(n => ({
-              ...n,
-              created_at: n.created_at instanceof Date ? n.created_at.toISOString() : n.created_at
-            })))
-
-          if (insertError) {
-            console.error("Error inserting notifications:", insertError)
-            return
-          }
-        }
-
-        if (!isSubscribed) return;
-
-        // Aktualisiere den Frontend-State mit allen Benachrichtigungen
-        setNotifications([
-          ...newNotificationsToAdd,
-          ...(existingNotifications || [])
-        ])
       }
 
-      checkNotifications()
-      const interval = setInterval(checkNotifications, 300000) // Alle 5 Minuten
+      if (!isSubscribed) return;
 
-      return () => {
-        isSubscribed = false
-        clearInterval(interval)
-      }
+      // Aktualisiere den Frontend-State mit allen Benachrichtigungen
+      setNotifications([
+        ...newNotificationsToAdd,
+        ...(existingNotifications || [])
+      ])
     }
-    fetchData()
+
+    checkNotifications()
+    const interval = setInterval(checkNotifications, 300000) // Alle 5 Minuten
+
+    return () => {
+      isSubscribed = false
+      clearInterval(interval)
+    }
   }, [products])
 
   const markNotificationAsRead = async (id: string) => {
-    if (!supabase) return
-
     // Update Frontend-State
     setNotifications(prevNotifications =>
       prevNotifications.map(notification =>
@@ -386,50 +371,38 @@ export default function Dashboard() {
   }, [debouncedSearchTerm]);
 
   useEffect(() => {
-    async function fetchData() {
-      if (!supabase) return
+    fetchCategories()
+    fetchProducts()
+    fetchInventoryItems()
+    fetchAnalyticsData()
 
-      fetchCategories()
-      fetchProducts()
-      fetchInventoryItems()
-      fetchAnalyticsData()
+    const channel = supabase
+      .channel('table-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'category' }, () => {
+        fetchCategories()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        fetchProducts()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
+        fetchInventoryItems()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
+        fetchAnalyticsData()
+      })
+      .subscribe()
 
-      const channel = supabase
-        .channel('table-db-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'category' }, () => {
-          fetchCategories()
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-          fetchProducts()
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
-          fetchInventoryItems()
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
-          fetchAnalyticsData()
-        })
-        .subscribe()
-
-      return () => {
-        supabase.removeChannel(channel)
-      }
+    return () => {
+      supabase.removeChannel(channel)
     }
-    fetchData()
   }, [])
 
   useEffect(() => {
-    async function fetchData() {
-      if (!supabase) return
-
-      fetchAnalyticsData()
-      updateDateRangeLabel()
-    }
-    fetchData()
+    fetchAnalyticsData()
+    updateDateRangeLabel()
   }, [dateRange])
 
   const fetchCategories = async () => {
-    if (!supabase) return
-
     const { data, error } = await supabase
       .from('category')
       .select('*')
@@ -442,8 +415,6 @@ export default function Dashboard() {
   }
 
   const fetchProducts = async () => {
-    if (!supabase) return
-
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -456,8 +427,6 @@ export default function Dashboard() {
   }
 
   const fetchInventoryItems = async () => {
-    if (!supabase) return
-
     const { data, error } = await supabase
       .from('inventory')
       .select('*')
@@ -472,8 +441,6 @@ export default function Dashboard() {
   
 
   const fetchAnalyticsData = async () => {
-    if (!supabase) return
-
     const startDate = dateRange.from || new Date()
     const endDate = dateRange.to || addDays(startDate, 1)
     
@@ -543,44 +510,25 @@ export default function Dashboard() {
     }
   }
 
-  const uploadImage = async (file: File) => {
-    if (!supabase) return null
-    
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${Math.random()}.${fileExt}`
-    const filePath = `${fileName}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('product_images')
-      .upload(filePath, file)
-
-    if (uploadError) {
-      console.error('Error uploading image:', uploadError)
-      return null
-    }
-
-    return filePath
-  }
-
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const uploadedImagePath = await uploadImage(e.target.files[0])
-      if (uploadedImagePath) {
-        setSelectedImage(e.target.files[0])
-      }
+      setSelectedImage(e.target.files[0])
     }
   }
 
     const handleAddProduct = async () => {
-    if (!supabase) return
     if (newProduct.product_name && newProduct.category) {
       let imagePath = '';
       if (selectedImage) {
         try {
-          const uploadedImagePath = await uploadImage(selectedImage)
-          if (uploadedImagePath) {
-            imagePath = uploadedImagePath;
+          const { data, error } = await supabase.storage
+            .from('product_images')
+            .upload(`${Date.now()}_${selectedImage.name}`, selectedImage);
+          if (error) {
+            console.error("Error uploading image:", error);
+            return;
           }
+          imagePath = data.path;
         } catch (error) {
           console.error("Error uploading image:", error);
           return;
@@ -612,19 +560,21 @@ export default function Dashboard() {
     }
   };
   const handleEditProduct = (product: Product) => {
-    if (!supabase) return
     setEditingProduct({...product})
     setIsEditProductDialogOpen(true)
   }
   const handleUpdateProduct = async () => {
-    if (!supabase) return
     if (editingProduct) {
       let imagePath = editingProduct.product_img_path
       if (selectedImage) {
-        const uploadedImagePath = await uploadImage(selectedImage)
-        if (uploadedImagePath) {
-          imagePath = uploadedImagePath;
+        const { data, error } = await supabase.storage
+          .from('product_images')
+          .upload(`${Date.now()}_${selectedImage.name}`, selectedImage)
+        if (error) {
+          console.error("Error uploading image:", error)
+          return
         }
+        imagePath = data.path
       }
       const { error } = await supabase
         .from('products')
@@ -652,7 +602,6 @@ export default function Dashboard() {
 
 
   const handleAddInventoryItem = async () => {
-    if (!supabase) return
     if (newInventoryItem.product_id && newInventoryItem.quantity > 0) {
       try {
         const { data, error } = await supabase
@@ -692,21 +641,26 @@ export default function Dashboard() {
   }
 
   const handleEditInventoryItem = (item: InventoryItem) => {
-    if (!supabase) return
     setEditingInventoryItem({...item})
     setIsEditInventoryItemDialogOpen(true)
   }
 
   const handleUpdateInventoryItem = async () => {
-    if (!supabase) return
     if (editingInventoryItem) {
       let imagePath = editingInventoryItem.inventory_product_img_path
       if (selectedImage) {
-        const uploadedImagePath = await uploadImage(selectedImage)
-        if (uploadedImagePath) {
-          imagePath = uploadedImagePath;
+        const { data, error } = await supabase.storage
+          .from('product_images')
+          .upload(`inventory_${Date.now()}_${selectedImage.name}`, selectedImage)
+  
+        if (error) {
+          console.error("Error uploading image:", error)
+          return
         }
+  
+        imagePath = data.path
       }
+  
       const { error } = await supabase
         .from('inventory')
         .update({
@@ -732,7 +686,6 @@ export default function Dashboard() {
   }
 
   const handleProductSelect = (productId: string) => {
-    if (!supabase) return
     const product = products.find(p => p.id === productId)
     if (product) {
       setSelectedProduct(product)
@@ -749,7 +702,6 @@ export default function Dashboard() {
 
   // Aktualisierte handleDeleteItem-Funktion
 const handleDeleteItem = async () => {
-  if (!supabase) return
   if (itemToDelete) {
     const { id, type } = itemToDelete
     const { error } = await supabase
@@ -774,7 +726,6 @@ const handleDeleteItem = async () => {
 }
 
   const handleAddCategory = async () => {
-    if (!supabase) return
     if (newCategory) {
       const { error } = await supabase
         .from('category')
@@ -788,12 +739,10 @@ const handleDeleteItem = async () => {
     }
   }
   const handleEditCategory = (category: Category) => {
-    if (!supabase) return
     setEditingCategory(category)
     setIsEditCategoryDialogOpen(true)
   }
   const handleUpdateCategory = async () => {
-    if (!supabase) return
     if (editingCategory) {
       const { error } = await supabase
         .from('category')
@@ -967,7 +916,6 @@ const handleDeleteItem = async () => {
 
   // Füge diese neue Funktion hinzu
   const handlePopoverOpenChange = async (open: boolean) => {
-    if (!supabase) return
     if (open) {
       const unreadNotifications = notifications.filter(n => !n.read)
       
@@ -1561,7 +1509,10 @@ const handleDeleteItem = async () => {
                           <PopoverTrigger asChild>
                             <Button
                               variant={"outline"}
-                              className={`w-[280px] justify-start text-left font-normal`}
+                              className={cn(
+                                "w-[280px] justify-start text-left font-normal",
+                                !newProduct.expiry_date && "text-muted-foreground"
+                              )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
                               {newProduct.expiry_date ? format(new Date(newProduct.expiry_date), "PPP") : <span>{t('dashboard.products.pickADate')}</span>}
@@ -2145,7 +2096,7 @@ const handleDeleteItem = async () => {
                       <TableCell>
                         {item.inventory_product_img_path ? (
                           <Image
-                            src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
+                            src={`${supabaseUrl}/storage/v1/object/public/product_images/${item.inventory_product_img_path}`}
                             alt={item.inventory_product_name}
                             width={50}
                             height={50}
