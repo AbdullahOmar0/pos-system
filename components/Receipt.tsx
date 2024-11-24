@@ -181,18 +181,21 @@ const Receipt: React.FC<ReceiptProps> = ({ order, total, amountReceived, change,
 
       {/* Totals */}
       <View style={receiptStyles.total}>
-        <Text style={receiptStyles.totalLabel}>کۆی گشتی:</Text>
-        <Text style={receiptStyles.totalValue}>{formatCurrency(total)}</Text>
+      <Text style={receiptStyles.totalValue}>{formatCurrency(total)}</Text>
+        <Text style={receiptStyles.totalLabel}>: کۆی گشتی</Text>
+       
       </View>
       
       <View style={receiptStyles.total}>
-        <Text style={receiptStyles.totalLabel}>پارەی دراو:</Text>
-        <Text style={receiptStyles.totalValue}>{formatCurrency(amountReceived)}</Text>
+      <Text style={receiptStyles.totalValue}>{formatCurrency(amountReceived)}</Text>
+        <Text style={receiptStyles.totalLabel}>: پارەی دراو</Text>
+        
       </View>
       
       <View style={receiptStyles.total}>
-        <Text style={receiptStyles.totalLabel}>گەڕاوە:</Text>
-        <Text style={receiptStyles.totalValue}>{formatCurrency(change)}</Text>
+      <Text style={receiptStyles.totalValue}>{formatCurrency(change)}</Text>
+        <Text style={receiptStyles.totalLabel}>: گەڕاوە</Text>
+      
       </View>
 
       <View style={receiptStyles.divider} />
